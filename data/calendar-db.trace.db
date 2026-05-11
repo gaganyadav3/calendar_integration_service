@@ -1,0 +1,368 @@
+2026-04-29 14:50:43.863365+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Function "sys_context" not found; SQL statement:
+select cast('string' as varchar2(32000)), sys_context('USERENV','CLOUD_SERVICE') from dual [90022-232]
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:644)
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:489)
+	at org.h2.message.DbException.get(DbException.java:223)
+	at org.h2.message.DbException.get(DbException.java:199)
+	at org.h2.command.Parser.readFunction(Parser.java:3772)
+	at org.h2.command.Parser.readTermWithIdentifier(Parser.java:5142)
+	at org.h2.command.Parser.readTerm(Parser.java:4828)
+	at org.h2.command.Parser.readFactor(Parser.java:3323)
+	at org.h2.command.Parser.readSum(Parser.java:3310)
+	at org.h2.command.Parser.readConcat(Parser.java:3275)
+	at org.h2.command.Parser.readCondition(Parser.java:3065)
+	at org.h2.command.Parser.readExpression(Parser.java:2985)
+	at org.h2.command.Parser.parseSelectExpressions(Parser.java:2785)
+	at org.h2.command.Parser.parseSelect(Parser.java:2803)
+	at org.h2.command.Parser.parseQueryPrimary(Parser.java:2692)
+	at org.h2.command.Parser.parseQueryTerm(Parser.java:2547)
+	at org.h2.command.Parser.parseQueryExpressionBody(Parser.java:2526)
+	at org.h2.command.Parser.parseQueryExpressionBodyAndEndOfQuery(Parser.java:2519)
+	at org.h2.command.Parser.parseQueryExpression(Parser.java:2512)
+	at org.h2.command.Parser.parseQuery(Parser.java:2479)
+	at org.h2.command.Parser.parsePrepared(Parser.java:610)
+	at org.h2.command.Parser.parse(Parser.java:581)
+	at org.h2.command.Parser.parse(Parser.java:556)
+	at org.h2.command.Parser.prepareCommand(Parser.java:484)
+	at org.h2.engine.SessionLocal.prepareLocal(SessionLocal.java:645)
+	at org.h2.engine.SessionLocal.prepareCommand(SessionLocal.java:561)
+	at org.h2.jdbc.JdbcConnection.prepareCommand(JdbcConnection.java:1164)
+	at org.h2.jdbc.JdbcStatement.executeQuery(JdbcStatement.java:94)
+	at com.zaxxer.hikari.pool.ProxyStatement.executeQuery(ProxyStatement.java:111)
+	at com.zaxxer.hikari.pool.HikariProxyStatement.executeQuery(HikariProxyStatement.java)
+	at org.hibernate.dialect.OracleServerConfiguration.fromDialectResolutionInfo(OracleServerConfiguration.java:139)
+	at org.hibernate.dialect.OracleDialect.<init>(OracleDialect.java:216)
+	at java.base/jdk.internal.reflect.DirectConstructorHandleAccessor.newInstance(DirectConstructorHandleAccessor.java:62)
+	at java.base/java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:499)
+	at java.base/java.lang.reflect.Constructor.newInstance(Constructor.java:483)
+	at org.hibernate.engine.jdbc.dialect.internal.DialectFactoryImpl.lambda$constructDialect$0(DialectFactoryImpl.java:131)
+	at org.hibernate.boot.registry.selector.internal.StrategySelectorImpl.resolveStrategy(StrategySelectorImpl.java:240)
+	at org.hibernate.boot.registry.selector.internal.StrategySelectorImpl.resolveStrategy(StrategySelectorImpl.java:189)
+	at org.hibernate.engine.jdbc.dialect.internal.DialectFactoryImpl.constructDialect(DialectFactoryImpl.java:123)
+	at org.hibernate.engine.jdbc.dialect.internal.DialectFactoryImpl.buildDialect(DialectFactoryImpl.java:88)
+	at org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator$1.execute(JdbcEnvironmentInitiator.java:367)
+	at org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator$1.execute(JdbcEnvironmentInitiator.java:335)
+	at org.hibernate.jdbc.WorkExecutor.executeReturningWork(WorkExecutor.java:58)
+	at org.hibernate.jdbc.AbstractReturningWork.accept(AbstractReturningWork.java:34)
+	at org.hibernate.resource.transaction.backend.jdbc.internal.JdbcIsolationDelegate.delegateWork(JdbcIsolationDelegate.java:70)
+	at org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator.getJdbcEnvironmentUsingJdbcMetadata(JdbcEnvironmentInitiator.java:334)
+	at org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator.initiateService(JdbcEnvironmentInitiator.java:129)
+	at org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator.initiateService(JdbcEnvironmentInitiator.java:81)
+	at org.hibernate.boot.registry.internal.StandardServiceRegistryImpl.initiateService(StandardServiceRegistryImpl.java:130)
+	at org.hibernate.service.internal.AbstractServiceRegistryImpl.createService(AbstractServiceRegistryImpl.java:263)
+	at org.hibernate.service.internal.AbstractServiceRegistryImpl.initializeService(AbstractServiceRegistryImpl.java:238)
+	at org.hibernate.service.internal.AbstractServiceRegistryImpl.getService(AbstractServiceRegistryImpl.java:215)
+	at org.hibernate.boot.model.relational.Database.<init>(Database.java:45)
+	at org.hibernate.boot.internal.InFlightMetadataCollectorImpl.getDatabase(InFlightMetadataCollectorImpl.java:226)
+	at org.hibernate.boot.internal.InFlightMetadataCollectorImpl.<init>(InFlightMetadataCollectorImpl.java:194)
+	at org.hibernate.boot.model.process.spi.MetadataBuildingProcess.complete(MetadataBuildingProcess.java:171)
+	at org.hibernate.jpa.boot.internal.EntityManagerFactoryBuilderImpl.metadata(EntityManagerFactoryBuilderImpl.java:1442)
+	at org.hibernate.jpa.boot.internal.EntityManagerFactoryBuilderImpl.build(EntityManagerFactoryBuilderImpl.java:1513)
+	at org.springframework.orm.jpa.vendor.SpringHibernateJpaPersistenceProvider.createContainerEntityManagerFactory(SpringHibernateJpaPersistenceProvider.java:66)
+	at org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean.createNativeEntityManagerFactory(LocalContainerEntityManagerFactoryBean.java:388)
+	at org.springframework.orm.jpa.AbstractEntityManagerFactoryBean.buildNativeEntityManagerFactory(AbstractEntityManagerFactoryBean.java:419)
+	at org.springframework.orm.jpa.AbstractEntityManagerFactoryBean.afterPropertiesSet(AbstractEntityManagerFactoryBean.java:400)
+	at org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean.afterPropertiesSet(LocalContainerEntityManagerFactoryBean.java:364)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.invokeInitMethods(AbstractAutowireCapableBeanFactory.java:1873)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1822)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:607)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:529)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339)
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:373)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:207)
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:974)
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:628)
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146)
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752)
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350)
+	at com.omvrti.calendar_service.Application.main(Application.java:13)
+2026-04-29 14:50:43.876545+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Function "sys_context" not found; SQL statement:
+select 1 from dual where sys_context('USERENV','CLOUD_SERVICE') in ('OLTP','DWCS','JDCS') [90022-232]
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:644)
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:489)
+	at org.h2.message.DbException.get(DbException.java:223)
+	at org.h2.message.DbException.get(DbException.java:199)
+	at org.h2.command.Parser.readFunction(Parser.java:3772)
+	at org.h2.command.Parser.readTermWithIdentifier(Parser.java:5142)
+	at org.h2.command.Parser.readTerm(Parser.java:4828)
+	at org.h2.command.Parser.readFactor(Parser.java:3323)
+	at org.h2.command.Parser.readSum(Parser.java:3310)
+	at org.h2.command.Parser.readConcat(Parser.java:3275)
+	at org.h2.command.Parser.readCondition(Parser.java:3065)
+	at org.h2.command.Parser.readExpressionWithGlobalConditions(Parser.java:2975)
+	at org.h2.command.Parser.parseSelect(Parser.java:2813)
+	at org.h2.command.Parser.parseQueryPrimary(Parser.java:2692)
+	at org.h2.command.Parser.parseQueryTerm(Parser.java:2547)
+	at org.h2.command.Parser.parseQueryExpressionBody(Parser.java:2526)
+	at org.h2.command.Parser.parseQueryExpressionBodyAndEndOfQuery(Parser.java:2519)
+	at org.h2.command.Parser.parseQueryExpression(Parser.java:2512)
+	at org.h2.command.Parser.parseQuery(Parser.java:2479)
+	at org.h2.command.Parser.parsePrepared(Parser.java:610)
+	at org.h2.command.Parser.parse(Parser.java:581)
+	at org.h2.command.Parser.parse(Parser.java:556)
+	at org.h2.command.Parser.prepareCommand(Parser.java:484)
+	at org.h2.engine.SessionLocal.prepareLocal(SessionLocal.java:645)
+	at org.h2.engine.SessionLocal.prepareCommand(SessionLocal.java:561)
+	at org.h2.jdbc.JdbcConnection.prepareCommand(JdbcConnection.java:1164)
+	at org.h2.jdbc.JdbcStatement.executeQuery(JdbcStatement.java:94)
+	at com.zaxxer.hikari.pool.ProxyStatement.executeQuery(ProxyStatement.java:111)
+	at com.zaxxer.hikari.pool.HikariProxyStatement.executeQuery(HikariProxyStatement.java)
+	at org.hibernate.dialect.OracleServerConfiguration.isAutonomous(OracleServerConfiguration.java:199)
+	at org.hibernate.dialect.OracleServerConfiguration.fromDialectResolutionInfo(OracleServerConfiguration.java:153)
+	at org.hibernate.dialect.OracleDialect.<init>(OracleDialect.java:216)
+	at java.base/jdk.internal.reflect.DirectConstructorHandleAccessor.newInstance(DirectConstructorHandleAccessor.java:62)
+	at java.base/java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:499)
+	at java.base/java.lang.reflect.Constructor.newInstance(Constructor.java:483)
+	at org.hibernate.engine.jdbc.dialect.internal.DialectFactoryImpl.lambda$constructDialect$0(DialectFactoryImpl.java:131)
+	at org.hibernate.boot.registry.selector.internal.StrategySelectorImpl.resolveStrategy(StrategySelectorImpl.java:240)
+	at org.hibernate.boot.registry.selector.internal.StrategySelectorImpl.resolveStrategy(StrategySelectorImpl.java:189)
+	at org.hibernate.engine.jdbc.dialect.internal.DialectFactoryImpl.constructDialect(DialectFactoryImpl.java:123)
+	at org.hibernate.engine.jdbc.dialect.internal.DialectFactoryImpl.buildDialect(DialectFactoryImpl.java:88)
+	at org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator$1.execute(JdbcEnvironmentInitiator.java:367)
+	at org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator$1.execute(JdbcEnvironmentInitiator.java:335)
+	at org.hibernate.jdbc.WorkExecutor.executeReturningWork(WorkExecutor.java:58)
+	at org.hibernate.jdbc.AbstractReturningWork.accept(AbstractReturningWork.java:34)
+	at org.hibernate.resource.transaction.backend.jdbc.internal.JdbcIsolationDelegate.delegateWork(JdbcIsolationDelegate.java:70)
+	at org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator.getJdbcEnvironmentUsingJdbcMetadata(JdbcEnvironmentInitiator.java:334)
+	at org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator.initiateService(JdbcEnvironmentInitiator.java:129)
+	at org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentInitiator.initiateService(JdbcEnvironmentInitiator.java:81)
+	at org.hibernate.boot.registry.internal.StandardServiceRegistryImpl.initiateService(StandardServiceRegistryImpl.java:130)
+	at org.hibernate.service.internal.AbstractServiceRegistryImpl.createService(AbstractServiceRegistryImpl.java:263)
+	at org.hibernate.service.internal.AbstractServiceRegistryImpl.initializeService(AbstractServiceRegistryImpl.java:238)
+	at org.hibernate.service.internal.AbstractServiceRegistryImpl.getService(AbstractServiceRegistryImpl.java:215)
+	at org.hibernate.boot.model.relational.Database.<init>(Database.java:45)
+	at org.hibernate.boot.internal.InFlightMetadataCollectorImpl.getDatabase(InFlightMetadataCollectorImpl.java:226)
+	at org.hibernate.boot.internal.InFlightMetadataCollectorImpl.<init>(InFlightMetadataCollectorImpl.java:194)
+	at org.hibernate.boot.model.process.spi.MetadataBuildingProcess.complete(MetadataBuildingProcess.java:171)
+	at org.hibernate.jpa.boot.internal.EntityManagerFactoryBuilderImpl.metadata(EntityManagerFactoryBuilderImpl.java:1442)
+	at org.hibernate.jpa.boot.internal.EntityManagerFactoryBuilderImpl.build(EntityManagerFactoryBuilderImpl.java:1513)
+	at org.springframework.orm.jpa.vendor.SpringHibernateJpaPersistenceProvider.createContainerEntityManagerFactory(SpringHibernateJpaPersistenceProvider.java:66)
+	at org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean.createNativeEntityManagerFactory(LocalContainerEntityManagerFactoryBean.java:388)
+	at org.springframework.orm.jpa.AbstractEntityManagerFactoryBean.buildNativeEntityManagerFactory(AbstractEntityManagerFactoryBean.java:419)
+	at org.springframework.orm.jpa.AbstractEntityManagerFactoryBean.afterPropertiesSet(AbstractEntityManagerFactoryBean.java:400)
+	at org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean.afterPropertiesSet(LocalContainerEntityManagerFactoryBean.java:364)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.invokeInitMethods(AbstractAutowireCapableBeanFactory.java:1873)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.initializeBean(AbstractAutowireCapableBeanFactory.java:1822)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:607)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:529)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:339)
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:373)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:337)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:207)
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:974)
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:628)
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:146)
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:752)
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:439)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:318)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1361)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1350)
+	at com.omvrti.calendar_service.Application.main(Application.java:13)
+2026-04-29 14:50:45.066360+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "all_sequences" not found; SQL statement:
+select * from all_sequences [42102-232]
+2026-05-04 15:47:04.984546+05:30 jdbc[25]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "select *[*]form events"; SQL statement:
+select *form events [42000-232]
+2026-05-04 15:47:12.884978+05:30 jdbc[25]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "select *[*]form events"; SQL statement:
+select *form events [42000-232]
+2026-05-04 15:49:06.950827+05:30 jdbc[25]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "[*]calendar_events calendar_events \000d\000aDELETE FROM CALENDAR_EVENTS"; expected "COMMIT, CREATE, CALL, CHECKPOINT, COMMENT"; SQL statement:
+calendar_events calendar_events 
+DELETE FROM CALENDAR_EVENTS [42001-232]
+2026-05-04 15:49:34.083025+05:30 jdbc[25]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "select *[*]form CALENDAR_EVENTS"; SQL statement:
+select *form CALENDAR_EVENTS [42000-232]
+2026-05-07 15:10:00.503469+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:10:01.110725+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:15:00.445394+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:15:01.259629+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:20:00.439656+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:20:01.090112+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:25:00.423805+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:25:01.111708+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:30:00.461663+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:30:01.129918+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:35:00.446827+05:30 jdbc[7]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:35:01.055682+05:30 jdbc[7]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:40:00.419135+05:30 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:40:01.029523+05:30 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:45:00.440250+05:30 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:45:01.030826+05:30 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:50:00.503642+05:30 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:50:01.136666+05:30 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:55:00.400921+05:30 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 15:55:00.995455+05:30 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:00:00.438639+05:30 jdbc[15]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:00:01.062855+05:30 jdbc[15]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:05:00.446059+05:30 jdbc[22]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:05:00.861944+05:30 jdbc[22]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:10:00.461103+05:30 jdbc[23]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:10:00.865461+05:30 jdbc[23]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:15:00.460804+05:30 jdbc[23]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:15:00.843796+05:30 jdbc[23]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:20:00.420000+05:30 jdbc[23]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:20:01.223666+05:30 jdbc[23]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:25:00.466034+05:30 jdbc[27]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:25:00.839746+05:30 jdbc[27]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:30:00.447139+05:30 jdbc[30]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:30:00.838815+05:30 jdbc[30]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:35:00.440560+05:30 jdbc[33]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:35:00.852388+05:30 jdbc[33]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:40:00.461443+05:30 jdbc[33]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:40:00.849332+05:30 jdbc[33]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:45:00.452737+05:30 jdbc[33]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:45:00.854646+05:30 jdbc[33]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:50:00.444139+05:30 jdbc[38]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:50:00.827879+05:30 jdbc[38]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:55:00.473347+05:30 jdbc[40]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 16:55:00.886021+05:30 jdbc[40]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 17:00:00.469258+05:30 jdbc[42]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 17:00:01.063341+05:30 jdbc[42]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 17:05:00.429364+05:30 jdbc[43]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 17:05:01.049133+05:30 jdbc[43]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 17:10:00.428971+05:30 jdbc[43]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 17:10:01.058396+05:30 jdbc[43]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 17:15:00.468629+05:30 jdbc[43]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 17:15:01.102970+05:30 jdbc[43]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 17:20:00.472531+05:30 jdbc[50]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-07 17:20:01.039279+05:30 jdbc[50]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-09 10:55:00.496040+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-09 11:00:00.403918+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-09 11:05:00.419401+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-09 11:10:00.447663+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-09 11:15:00.715407+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-09 11:20:00.432668+05:30 jdbc[5]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-09 11:25:00.677289+05:30 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
+2026-05-09 11:30:00.721631+05:30 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLDataException: Value too long for column "last_error_message CHARACTER VARYING(255)": "U&'Failed to pull remote changes: Failed to fetch Google events: 410 Gone\\000d\\0... (422)"; SQL statement:
+insert into sync_metadata (consecutive_failures,created_at,last_error_message,last_sync_count,last_sync_status,last_sync_time,last_sync_token,provider,updated_at,user_id,id) values (?,?,?,?,?,?,?,?,?,?,default) [22001-232]
