@@ -5,13 +5,12 @@ import com.omvrti.calendar_service.calendar.provider.ICalendarProvider;
 import com.omvrti.calendar_service.common.dto.EventDto;
 import com.omvrti.calendar_service.common.enums.EventSource;
 import com.omvrti.calendar_service.common.enums.ProviderType;
+import com.omvrti.calendar_service.common.util.EventEntityMapper;
 import com.omvrti.calendar_service.oauth.service.TokenRefreshService;
-import com.omvrti.calendar_service.persistence.entity.ConnectedAccountEntity;
-import com.omvrti.calendar_service.persistence.entity.EventEntity;
-import com.omvrti.calendar_service.persistence.entity.UserEntity;
-import com.omvrti.calendar_service.persistence.repository.ConnectedAccountRepository;
-import com.omvrti.calendar_service.persistence.repository.EventRepository;
-import com.omvrti.calendar_service.persistence.repository.UserRepository;
+import com.omvrti.calendar_service.persistence.entity.CUSyncCalendarEntity;
+import com.omvrti.calendar_service.persistence.entity.CUSyncCalendarEventEntity;
+import com.omvrti.calendar_service.persistence.entity.CustomerUserSyncEntity;
+import com.omvrti.calendar_service.persistence.repository.CUSyncCalendarEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,102 +28,118 @@ import java.util.stream.Collectors;
 @Slf4j
 public class UnifiedEventService {
 
-    private final UserRepository userRepository;
-    private final ConnectedAccountRepository accountRepository;
-    private final EventRepository eventRepository;
+    private final CUSyncCalendarEventRepository eventRepository;
     private final EventManagementService eventManagementService;
     private final TokenRefreshService tokenRefreshService;
     private final CalendarProviderFactory providerFactory;
+    private final CustomerUserSyncService customerUserSyncService;
+    private final ProviderCalendarService providerCalendarService;
+    private final EventEntityMapper eventMapper;
 
     @Transactional
     public EventDto create(String userEmail, EventDto request) {
         ProviderType provider = requireProvider(request.getProvider());
-        ConnectedAccountEntity account = requireAccount(userEmail, provider);
+        CustomerUserSyncEntity sync = requireSync(userEmail, provider);
+        tokenRefreshService.getValidAccessToken(sync, provider);
 
-        tokenRefreshService.getValidAccessToken(userEmail, provider);
         ICalendarProvider calendarProvider = providerFactory.getProvider(provider);
-
         EventDto dto = normalizeToUtc(request);
         dto.setInternalId(dto.getInternalId() != null ? dto.getInternalId() : UUID.randomUUID().toString());
         dto.setProvider(provider);
         dto.setSource(EventSource.INTERNAL);
 
-        String externalId = calendarProvider.createEvent(account, dto);
+        String externalId = calendarProvider.createEvent(sync, "primary", dto);
         dto.setExternalId(externalId);
 
-        EventEntity saved = eventManagementService.saveEvent(userEmail, dto, account);
-        return toDto(saved);
+        CUSyncCalendarEntity calendar = providerCalendarService.getOrCreatePrimaryCalendar(sync, "primary");
+        CUSyncCalendarEventEntity saved = eventManagementService.saveEvent(userEmail, dto, calendar);
+        return eventMapper.entityToDto(saved);
     }
 
     public List<EventDto> list(String userEmail) {
-        return eventManagementService.getUserEvents(userEmail).stream().map(UnifiedEventService::toDto).collect(Collectors.toList());
+        return eventManagementService.getUserEvents(userEmail).stream()
+                .map(eventMapper::entityToDto)
+                .collect(Collectors.toList());
     }
 
-    public Optional<EventDto> get(String internalId) {
-        return eventRepository.findByInternalId(internalId).map(UnifiedEventService::toDto);
+    public Optional<EventDto> get(String calendarEventReference) {
+        return eventRepository.findByCalendarEventReference(calendarEventReference)
+                .stream().findFirst()
+                .map(eventMapper::entityToDto);
     }
 
     @Transactional
-    public EventDto update(String userEmail, String internalId, EventDto request) {
-        EventEntity existing = eventRepository.findByInternalId(internalId)
-                .orElseThrow(() -> new IllegalArgumentException("Event not found: " + internalId));
+    public EventDto update(String userEmail, String calendarEventReference, EventDto request) {
+        CUSyncCalendarEventEntity existing = eventRepository
+                .findByCalendarEventReference(calendarEventReference)
+                .stream().findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Event not found: " + calendarEventReference));
 
-        ProviderType provider = requireProvider(existing.getProvider() != null ? existing.getProvider() : request.getProvider());
-        ConnectedAccountEntity account = requireAccount(userEmail, provider);
-        tokenRefreshService.getValidAccessToken(userEmail, provider);
+        ProviderType provider = requireProvider(
+                existing.getCalendarEventReference() != null ? request.getProvider() : request.getProvider());
+        CustomerUserSyncEntity sync = requireSync(userEmail, provider);
+        tokenRefreshService.getValidAccessToken(sync, provider);
 
         ICalendarProvider calendarProvider = providerFactory.getProvider(provider);
-
         EventDto dto = normalizeToUtc(request);
-        dto.setInternalId(existing.getInternalId());
-        dto.setExternalId(existing.getExternalId());
+        dto.setExternalId(calendarEventReference);
         dto.setProvider(provider);
         dto.setSource(EventSource.INTERNAL);
 
-        if (existing.getExternalId() == null) {
-            String externalId = calendarProvider.createEvent(account, dto);
-            dto.setExternalId(externalId);
-        } else {
-            calendarProvider.updateEvent(account, existing.getExternalId(), dto);
-        }
+        calendarProvider.updateEvent(sync, "primary", calendarEventReference, dto);
 
-        EventEntity saved = eventManagementService.saveEvent(userEmail, dto, account);
-        return toDto(saved);
+        CUSyncCalendarEntity calendar = existing.getCuSyncCalendar();
+        CUSyncCalendarEventEntity savedEntity = eventManagementService.saveEvent(userEmail, dto, calendar);
+        return eventMapper.entityToDto(savedEntity);
     }
 
     @Transactional
-    public void delete(String userEmail, String internalId) {
-        EventEntity existing = eventRepository.findByInternalId(internalId)
-                .orElseThrow(() -> new IllegalArgumentException("Event not found: " + internalId));
+    public void delete(String userEmail, String calendarEventReference) {
+        CUSyncCalendarEventEntity existing = eventRepository
+                .findByCalendarEventReference(calendarEventReference)
+                .stream().findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Event not found: " + calendarEventReference));
 
-        if (existing.getProvider() != null && existing.getExternalId() != null) {
-            ConnectedAccountEntity account = requireAccount(userEmail, existing.getProvider());
-            tokenRefreshService.getValidAccessToken(userEmail, existing.getProvider());
-            ICalendarProvider calendarProvider = providerFactory.getProvider(existing.getProvider());
-            calendarProvider.deleteEvent(account, existing.getExternalId());
+        if (existing.getCalendarEventReference() != null) {
+            try {
+                // Try to find the provider from the calendar's sync vendor
+                CUSyncCalendarEntity cal = existing.getCuSyncCalendar();
+                if (cal != null && cal.getCustomerUserSync() != null
+                        && cal.getCustomerUserSync().getSyncVendor() != null) {
+                    ProviderType provider = ProviderType.valueOf(
+                            cal.getCustomerUserSync().getSyncVendor().getVendorCode());
+                    CustomerUserSyncEntity sync = requireSync(userEmail, provider);
+                    tokenRefreshService.getValidAccessToken(sync, provider);
+                    providerFactory.getProvider(provider)
+                            .deleteEvent(sync, "primary", calendarEventReference);
+                }
+            } catch (Exception e) {
+                log.warn("Could not delete event from provider: {}", e.getMessage());
+            }
         }
-
-        eventManagementService.deleteEvent(internalId);
+        eventManagementService.deleteEvent(calendarEventReference);
     }
 
-    private ConnectedAccountEntity requireAccount(String userEmail, ProviderType provider) {
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
+    // ── Private helpers ───────────────────────────────────────────────────────
 
-        return accountRepository.findByUserAndProvider(user, provider)
-                .filter(ConnectedAccountEntity::isActive)
-                .orElseThrow(() -> new IllegalArgumentException("Provider not connected/active: " + provider));
+    private CustomerUserSyncEntity requireSync(String userEmail, ProviderType provider) {
+        return customerUserSyncService.getSyncByEmail(userEmail, provider)
+                .filter(s -> Integer.valueOf(1).equals(s.getIsActive()))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Provider not connected: " + provider + " for user: " + userEmail));
     }
 
     private static ProviderType requireProvider(ProviderType provider) {
-        if (provider == null) {
-            throw new IllegalArgumentException("provider is required");
-        }
+        if (provider == null) throw new IllegalArgumentException("provider is required");
         return provider;
     }
 
     private static EventDto normalizeToUtc(EventDto in) {
-        EventDto.EventDtoBuilder b = EventDto.builder()
+        OffsetDateTime start = in.getStartTime();
+        OffsetDateTime end = in.getEndTime();
+        if (start != null) start = start.withOffsetSameInstant(ZoneOffset.UTC);
+        if (end != null) end = end.withOffsetSameInstant(ZoneOffset.UTC);
+        return EventDto.builder()
                 .id(in.getId())
                 .internalId(in.getInternalId())
                 .externalId(in.getExternalId())
@@ -137,42 +152,9 @@ public class UnifiedEventService {
                 .isCancelled(in.isCancelled())
                 .provider(in.getProvider())
                 .source(in.getSource())
-                .externalUpdatedAt(in.getExternalUpdatedAt());
-
-        OffsetDateTime start = in.getStartTime();
-        OffsetDateTime end = in.getEndTime();
-        if (start != null) start = start.withOffsetSameInstant(ZoneOffset.UTC);
-        if (end != null) end = end.withOffsetSameInstant(ZoneOffset.UTC);
-
-        b.startTime(start);
-        b.endTime(end);
-        b.timeZoneId("UTC");
-        return b.build();
-    }
-
-    private static EventDto toDto(EventEntity e) {
-        return EventDto.builder()
-                .id(e.getId())
-                .internalId(e.getInternalId())
-                .externalId(e.getExternalId())
-                .title(e.getTitle())
-                .description(e.getDescription())
-                .location(e.getLocation())
-                .organizer(e.getOrganizer())
-                .startTime(e.getStartTime())
-                .endTime(e.getEndTime())
+                .externalUpdatedAt(in.getExternalUpdatedAt())
+                .startTime(start).endTime(end)
                 .timeZoneId("UTC")
-                .allDay(e.isAllDay())
-                .status(e.getStatus())
-                .isCancelled(e.isCancelled())
-                .provider(e.getProvider())
-                .source(e.getSource())
-                .createdAt(e.getCreatedAt())
-                .updatedAt(e.getUpdatedAt())
-                .externalUpdatedAt(e.getExternalUpdatedAt())
-                .syncStatus(e.getSyncStatus())
-                .version(e.getVersion())
                 .build();
     }
 }
-

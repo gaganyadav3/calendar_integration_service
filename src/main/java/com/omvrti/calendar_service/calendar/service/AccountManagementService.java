@@ -2,11 +2,9 @@ package com.omvrti.calendar_service.calendar.service;
 
 import com.omvrti.calendar_service.common.dto.ConnectedAccountDto;
 import com.omvrti.calendar_service.common.enums.ProviderType;
-import com.omvrti.calendar_service.oauth.service.TokenRefreshService;
-import com.omvrti.calendar_service.persistence.entity.ConnectedAccountEntity;
-import com.omvrti.calendar_service.persistence.entity.UserEntity;
-import com.omvrti.calendar_service.persistence.repository.ConnectedAccountRepository;
-import com.omvrti.calendar_service.persistence.repository.UserRepository;
+import com.omvrti.calendar_service.persistence.entity.CustomerUserEntity;
+import com.omvrti.calendar_service.persistence.entity.CustomerUserSyncEntity;
+import com.omvrti.calendar_service.persistence.repository.CustomerUserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -15,110 +13,68 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * Service for managing connected calendar accounts
- * Handles connecting, disconnecting, and listing accounts
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class AccountManagementService {
 
-    private final ConnectedAccountRepository accountRepository;
-    private final UserRepository userRepository;
-    private final TokenRefreshService tokenRefreshService;
+    private final CustomerUserRepository customerUserRepository;
+    private final CustomerUserSyncService customerUserSyncService;
 
-    /**
-     * Get or create user
-     */
-    public UserEntity getOrCreateUser(String email, String firstName, String lastName) {
-        log.debug("Getting or creating user: {}", email);
-
-        return userRepository.findByEmail(email)
-                .orElseGet(() -> {
-                    UserEntity user = UserEntity.builder()
-                            .email(email)
-                            .firstName(firstName)
-                            .lastName(lastName)
-                            .build();
-                    return userRepository.save(user);
-                });
+    public CustomerUserEntity getOrCreateCustomerUser(String email, String firstName, String lastName) {
+        log.debug("Getting or creating customer user: {}", email);
+        return customerUserSyncService.getOrCreateCustomerUser(email, firstName, lastName);
     }
 
-    /**
-     * Get all connected accounts for a user
-     */
     public List<ConnectedAccountDto> getConnectedAccounts(String userEmail) {
         log.debug("Fetching connected accounts for: {}", userEmail);
-
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        return accountRepository.findByUser(user).stream()
+        CustomerUserEntity customerUser = customerUserRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new IllegalArgumentException("Customer user not found: " + userEmail));
+        return customerUserSyncService.getActiveSyncs(customerUser).stream()
                 .map(this::convertToDto)
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Check if provider is connected
-     */
     public boolean isProviderConnected(String userEmail, ProviderType provider) {
-        log.debug("Checking if {} connected for {}", provider, userEmail);
-
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        return accountRepository.existsByUserAndProvider(user, provider) &&
-               accountRepository.findByUserAndProvider(user, provider)
-                       .map(ConnectedAccountEntity::isActive)
-                       .orElse(false);
+        return customerUserRepository.findByEmail(userEmail)
+                .map(user -> customerUserSyncService.isProviderConnected(user, provider))
+                .orElse(false);
     }
 
-    /**
-     * Get connected account details
-     */
     public ConnectedAccountDto getConnectedAccount(String userEmail, ProviderType provider) {
-        log.debug("Fetching connected account for {} - {}", userEmail, provider);
-
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        ConnectedAccountEntity account = accountRepository.findByUserAndProvider(user, provider)
+        CustomerUserEntity customerUser = customerUserRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new IllegalArgumentException("Customer user not found: " + userEmail));
+        CustomerUserSyncEntity sync = customerUserSyncService.getSync(customerUser, provider)
                 .orElseThrow(() -> new IllegalArgumentException("Provider not connected: " + provider));
-
-        return convertToDto(account);
+        return convertToDto(sync);
     }
 
-    /**
-     * Disconnect provider account
-     */
     @Transactional
     public void disconnectProvider(String userEmail, ProviderType provider) {
         log.info("Disconnecting {} for user: {}", provider, userEmail);
-
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        tokenRefreshService.disconnectAccount(user, provider);
+        CustomerUserEntity customerUser = customerUserRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new IllegalArgumentException("Customer user not found: " + userEmail));
+        customerUserSyncService.disconnectProvider(customerUser, provider);
     }
 
-    /**
-     * Get list of available providers
-     */
     public List<ProviderType> getAvailableProviders() {
         return List.of(ProviderType.GOOGLE, ProviderType.OUTLOOK);
     }
 
-    private ConnectedAccountDto convertToDto(ConnectedAccountEntity entity) {
+    private ConnectedAccountDto convertToDto(CustomerUserSyncEntity sync) {
+        ProviderType provider = null;
+        if (sync.getSyncVendor() != null) {
+            try { provider = ProviderType.valueOf(sync.getSyncVendor().getVendorCode()); }
+            catch (IllegalArgumentException ignored) {}
+        }
         return ConnectedAccountDto.builder()
-                .id(entity.getId())
-                .provider(entity.getProvider())
-                .externalUserId(entity.getExternalUserId())
-                .isActive(entity.isActive())
-                .connectedAt(entity.getConnectedAt())
-                .lastTokenRefreshAt(entity.getLastTokenRefreshAt())
-                .scope(entity.getScope())
+                .id(sync.getId())
+                .provider(provider)
+                .externalUserId(sync.getSyncingAccountReference())
+                .isActive(Integer.valueOf(1).equals(sync.getIsActive()))
+                .connectedAt(sync.getInsertedOn())
+                .lastTokenRefreshAt(sync.getUpdatedOn())
+                .scope(sync.getTokenScope())
                 .build();
     }
 }
-

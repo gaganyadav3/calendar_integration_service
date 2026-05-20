@@ -4,164 +4,93 @@ import com.omvrti.calendar_service.calendar.provider.ICalendarProvider;
 import com.omvrti.calendar_service.common.dto.CalendarSummaryDto;
 import com.omvrti.calendar_service.common.enums.ProviderType;
 import com.omvrti.calendar_service.oauth.service.TokenRefreshService;
-import com.omvrti.calendar_service.persistence.entity.ConnectedAccountEntity;
-import com.omvrti.calendar_service.persistence.entity.UserEntity;
-import com.omvrti.calendar_service.persistence.repository.ConnectedAccountRepository;
-import com.omvrti.calendar_service.persistence.repository.EventRepository;
-import com.omvrti.calendar_service.persistence.repository.UserRepository;
+import com.omvrti.calendar_service.persistence.entity.CustomerUserSyncEntity;
+import com.omvrti.calendar_service.persistence.repository.CustomerUserRepository;
+import com.omvrti.calendar_service.persistence.repository.CustomerUserSyncRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-/**
- * Service for generating calendar summaries and statistics
- * Calculates total events, bookings, and provider status
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class CalendarSummaryService {
 
-    private final EventRepository eventRepository;
-    private final UserRepository userRepository;
-    private final ConnectedAccountRepository accountRepository;
+    private final CustomerUserRepository customerUserRepository;
+    private final CustomerUserSyncRepository customerUserSyncRepository;
+    private final CustomerUserSyncService customerUserSyncService;
+    private final EventManagementService eventManagementService;
     private final TokenRefreshService tokenRefreshService;
     private final Map<ProviderType, ICalendarProvider> calendarProviders;
 
-    /**
-     * Get comprehensive calendar summary for a user
-     * Returns total events, bookings, and per-provider status
-     */
     public CalendarSummaryDto.SummaryResponse getCalendarSummary(String userEmail) {
         log.debug("Generating calendar summary for: {}", userEmail);
 
-        UserEntity user = userRepository.findByEmail(userEmail)
+        var customerUser = customerUserRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
 
-        // Get all connected provider accounts
-        List<ConnectedAccountEntity> accounts = accountRepository.findByUserAndIsActiveTrue(user);
+        List<CustomerUserSyncEntity> activeSyncs = customerUserSyncService.getActiveSyncs(customerUser);
 
         CalendarSummaryDto.SummaryResponse response = new CalendarSummaryDto.SummaryResponse();
         Map<String, CalendarSummaryDto> providerSummaries = new HashMap<>();
+        long totalEvents = 0;
+        long totalBookings = 0;
 
-        long totalUnifiedEvents = 0;
-        long totalUnifiedBookings = 0;
+        for (CustomerUserSyncEntity sync : activeSyncs) {
+            try {
+                ProviderType provider = ProviderType.valueOf(sync.getSyncVendor().getVendorCode());
+                long events = eventManagementService.countEvents(userEmail, provider);
+                long bookings = eventManagementService.getUpcomingEvents(userEmail).stream()
+                        .filter(e -> !Boolean.TRUE.equals(e.getIsCancelled())).count();
 
-        for (ConnectedAccountEntity account : accounts) {
-            CalendarSummaryDto summary = getProviderSummary(user, account);
-            providerSummaries.put(account.getProvider().name(), summary);
-
-            totalUnifiedEvents += summary.getTotalEvents();
-            totalUnifiedBookings += summary.getTotalBookings();
+                CalendarSummaryDto summary = CalendarSummaryDto.builder()
+                        .provider(provider)
+                        .totalEvents(events)
+                        .totalBookings(bookings)
+                        .isConnected(Integer.valueOf(1).equals(sync.getIsActive()))
+                        .lastSyncStatus(sync.getSyncStatus() != null ? sync.getSyncStatus().getName() : "UNKNOWN")
+                        .build();
+                providerSummaries.put(provider.name(), summary);
+                totalEvents += events;
+                totalBookings += bookings;
+            } catch (Exception e) {
+                log.warn("Failed to get summary for sync {}: {}", sync.getId(), e.getMessage());
+            }
         }
 
-        response.setTotalProvidersConnected(accounts.size());
-        response.setTotalUnifiedEvents(totalUnifiedEvents);
-        response.setTotalUnifiedBookings(totalUnifiedBookings);
+        response.setTotalProvidersConnected(activeSyncs.size());
+        response.setTotalUnifiedEvents(totalEvents);
+        response.setTotalUnifiedBookings(totalBookings);
         response.setProviderSummaries(providerSummaries);
-
-        log.debug("Calendar summary generated: {} providers, {} events, {} bookings",
-            accounts.size(), totalUnifiedEvents, totalUnifiedBookings);
-
         return response;
     }
 
-    /**
-     * Get summary for a specific provider
-     */
-    public CalendarSummaryDto getProviderSummary(UserEntity user, ConnectedAccountEntity account) {
-        log.debug("Getting summary for {} - {}", user.getEmail(), account.getProvider());
-
-        long totalEvents = eventRepository.countEventsByUserAndProvider(user, account.getProvider());
-        long totalBookings = eventRepository.countUpcomingBookingsByUserAndProvider(user, account.getProvider());
-
-        CalendarSummaryDto summary = CalendarSummaryDto.builder()
-                .provider(account.getProvider())
-                .totalEvents(totalEvents)
-                .totalBookings(totalBookings)
-                .isConnected(account.isActive())
-                .lastSyncStatus(getLastSyncStatus(account))
-                .build();
-
-        return summary;
-    }
-
-    /**
-     * Get provider-specific summary using provider's API
-     * This fetches real-time data from the provider
-     */
     public ICalendarProvider.CalendarStateSummary getProviderStateSummary(String userEmail, ProviderType provider) {
-        log.debug("Getting provider state summary for {} - {}", userEmail, provider);
-
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        ConnectedAccountEntity account = accountRepository.findByUserAndProvider(user, provider)
+        CustomerUserSyncEntity sync = customerUserSyncService.getSyncByEmail(userEmail, provider)
+                .filter(s -> Integer.valueOf(1).equals(s.getIsActive()))
                 .orElseThrow(() -> new IllegalArgumentException("Provider not connected: " + provider));
 
-        if (!account.isActive()) {
-            throw new IllegalArgumentException("Account not active");
-        }
-
         ICalendarProvider calendarProvider = calendarProviders.get(provider);
-        if (calendarProvider == null) {
-            throw new IllegalArgumentException("Provider not implemented: " + provider);
-        }
+        if (calendarProvider == null) throw new IllegalArgumentException("Provider not implemented: " + provider);
 
         try {
-            // Ensure token is valid
-            tokenRefreshService.getValidAccessToken(userEmail, provider);
-
-            // Get summary from provider
-            return calendarProvider.getCurrentStateSummary(account);
+            tokenRefreshService.getValidAccessToken(sync, provider);
+            return calendarProvider.getCurrentStateSummary(sync, "primary");
         } catch (Exception e) {
             log.error("Error getting provider state summary", e);
             throw new RuntimeException("Failed to get state summary: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Get event statistics for date range
-     */
     public Map<String, Object> getEventStatistics(String userEmail) {
         log.debug("Calculating event statistics for: {}", userEmail);
-
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
         Map<String, Object> stats = new HashMap<>();
-
-        // Total events
-        long totalEvents = eventRepository.findByUserAndIsDeletedFalse(user).size();
-        stats.put("totalEvents", totalEvents);
-
-        // Upcoming bookings
-        long upcomingBookings = eventRepository.findUpcomingBookings(user).size();
-        stats.put("upcomingBookings", upcomingBookings);
-
-        // Stats by provider
-        Map<String, Map<String, Long>> providerStats = new HashMap<>();
-
-        List<ConnectedAccountEntity> accounts = accountRepository.findByUserAndIsActiveTrue(user);
-        for (ConnectedAccountEntity account : accounts) {
-            Map<String, Long> ps = new HashMap<>();
-            ps.put("totalEvents", eventRepository.countEventsByUserAndProvider(user, account.getProvider()));
-            ps.put("upcomingBookings", eventRepository.countUpcomingBookingsByUserAndProvider(user, account.getProvider()));
-            providerStats.put(account.getProvider().name(), ps);
-        }
-
-        stats.put("byProvider", providerStats);
-
+        stats.put("totalEvents", eventManagementService.getUserEvents(userEmail).size());
+        stats.put("upcomingBookings", eventManagementService.getUpcomingEvents(userEmail).size());
         return stats;
     }
-
-    private String getLastSyncStatus(ConnectedAccountEntity account) {
-        // This would typically fetch from sync_metadata table
-        // For now returning a placeholder
-        return account.getLastTokenRefreshAt() != null ? "OK" : "PENDING";
-    }
 }
-

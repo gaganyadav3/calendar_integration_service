@@ -4,7 +4,7 @@ import com.omvrti.calendar_service.calendar.service.CalendarService;
 import com.omvrti.calendar_service.common.dto.CalendarEventDto;
 import com.omvrti.calendar_service.common.enums.ProviderType;
 import com.omvrti.calendar_service.common.exception.CalendarException;
-import com.omvrti.calendar_service.persistence.entity.EventEntity;
+import com.omvrti.calendar_service.persistence.entity.CUSyncCalendarEventEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -194,7 +194,7 @@ public class CalendarController {
     public ResponseEntity<?> getUserEvents(@RequestHeader("X-USER-EMAIL") String userEmail) {
         log.info("Fetching all events from database for user: {}", userEmail);
         try {
-            List<EventEntity> events = calendarService.getUserEvents(userEmail);
+            List<CUSyncCalendarEventEntity> events = calendarService.getUserEvents(userEmail);
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("count", events.size());
@@ -220,7 +220,7 @@ public class CalendarController {
             return ResponseEntity.badRequest().body(error);
         }
         try {
-            List<EventEntity> events = calendarService.getUserEventsByProvider(userEmail, providerType);
+            List<CUSyncCalendarEventEntity> events = calendarService.getUserEventsByProvider(userEmail, providerType);
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("provider", provider);

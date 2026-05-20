@@ -2,12 +2,11 @@ package com.omvrti.calendar_service.oauth.service;
 
 import com.omvrti.calendar_service.common.dto.OAuthTokenDto;
 import com.omvrti.calendar_service.common.enums.ProviderType;
+import com.omvrti.calendar_service.common.exception.OAuthException;
 import com.omvrti.calendar_service.common.exception.ProviderAuthException;
 import com.omvrti.calendar_service.oauth.provider.IOAuthProvider;
-import com.omvrti.calendar_service.persistence.entity.ConnectedAccountEntity;
-import com.omvrti.calendar_service.persistence.entity.UserEntity;
-import com.omvrti.calendar_service.persistence.repository.ConnectedAccountRepository;
-import com.omvrti.calendar_service.persistence.repository.UserRepository;
+import com.omvrti.calendar_service.persistence.entity.CustomerUserSyncEntity;
+import com.omvrti.calendar_service.persistence.repository.CustomerUserSyncRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.retry.annotation.Backoff;
@@ -15,7 +14,7 @@ import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.Map;
 
 @Service
@@ -23,158 +22,75 @@ import java.util.Map;
 @Slf4j
 public class TokenRefreshService {
 
-    private final ConnectedAccountRepository accountRepository;
-    private final UserRepository userRepository;
+    private final CustomerUserSyncRepository customerUserSyncRepository;
     private final Map<ProviderType, IOAuthProvider> oauthProviders;
 
-    private static final int REFRESH_THRESHOLD_MINUTES = 5;
-
     /**
-     * Get valid access token, refreshing if necessary
+     * Return a valid access token for a CustomerUserSyncEntity, refreshing if the token is expired.
      */
     @Transactional
-    @Retryable(
-        retryFor = {ProviderAuthException.class},
-        maxAttempts = 3,
-        backoff = @Backoff(delay = 1000, multiplier = 2)
-    )
-    public String getValidAccessToken(String userEmail, ProviderType provider) {
-        log.debug("Getting valid access token for {} - {}", userEmail, provider);
-
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new ProviderAuthException(provider.name(), "User not found: " + userEmail));
-
-        ConnectedAccountEntity account = accountRepository.findByUserAndProvider(user, provider)
-                .orElseThrow(() -> new ProviderAuthException(
-                    provider.name(),
-                    String.format("No connected account for %s", provider)
-                ));
-
-        if (!account.isActive()) {
-            throw new ProviderAuthException(provider.name(), "Account is not active");
+    @Retryable(retryFor = {ProviderAuthException.class}, maxAttempts = 2,
+               backoff = @Backoff(delay = 1000))
+    public String getValidAccessToken(CustomerUserSyncEntity sync, ProviderType provider) {
+        if (sync.isTokenExpired()) {
+            log.info("Token expired for {} - {}, refreshing", sync.getSyncEmail(), provider);
+            sync = refreshCustomerUserSyncToken(sync, provider);
         }
-
-        if (account.isTokenExpired()) {
-            log.info("Token expired, refreshing for {} - {}", userEmail, provider);
-            refreshAccessToken(user, provider);
-            // Reload account after refresh
-            account = accountRepository.findByUserAndProvider(user, provider).orElseThrow();
-        }
-
-        return account.getAccessToken();
+        return sync.getAccessToken();
     }
 
     /**
-     * Refresh access token using refresh token
+     * Refresh access token.
+     * Since REFRESH_TOKEN is not stored in the new schema the only option is re-authentication.
      */
     @Transactional
-    public void refreshAccessToken(UserEntity user, ProviderType provider) {
-        log.info("Refreshing access token for {} - {}", user.getEmail(), provider);
+    public CustomerUserSyncEntity refreshCustomerUserSyncToken(CustomerUserSyncEntity sync, ProviderType provider) {
+        log.info("Refreshing token for {} - {}", sync.getSyncEmail(), provider);
 
-        ConnectedAccountEntity account = accountRepository.findByUserAndProvider(user, provider)
-                .orElseThrow(() -> new ProviderAuthException(
-                    provider.name(),
-                    "No connected account found"
-                ));
+        String refreshToken = sync.getRefreshToken();
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new ProviderAuthException(provider.name(),
+                    "No refresh token available for " + sync.getSyncEmail() + ". Please re-authenticate.");
+        }
 
-        if (account.getRefreshToken() == null || account.getRefreshToken().isEmpty()) {
-            throw new ProviderAuthException(
-                provider.name(),
-                "No refresh token available. Please reconnect your account."
-            );
+        IOAuthProvider oauthProvider = oauthProviders.get(provider);
+        if (oauthProvider == null) {
+            throw new ProviderAuthException(provider.name(), "OAuth provider not registered: " + provider);
         }
 
         try {
-            IOAuthProvider oauthProvider = oauthProviders.get(provider);
-            if (oauthProvider == null) {
-                throw new ProviderAuthException(provider.name(), "Provider not implemented");
-            }
-
-            OAuthTokenDto newToken = oauthProvider.refreshAccessToken(account.getRefreshToken());
-
-            // Update account with new token
-            account.setAccessToken(newToken.getAccessToken());
-            if (newToken.getRefreshToken() != null) {
-                account.setRefreshToken(newToken.getRefreshToken());
-            }
-            if (newToken.getIdToken() != null) {
-                account.setIdToken(newToken.getIdToken());
-            }
-            account.setLastTokenRefreshAt(LocalDateTime.now());
+            OAuthTokenDto newToken = oauthProvider.refreshAccessToken(refreshToken);
+            sync.setAccessToken(newToken.getAccessToken());
+            if (newToken.getRefreshToken() != null) sync.setRefreshToken(newToken.getRefreshToken());
+            if (newToken.getIdToken() != null) sync.setIdToken(newToken.getIdToken());
+            if (newToken.getScope() != null) sync.setTokenScope(newToken.getScope());
             if (newToken.getExpiresIn() != null) {
-                account.setAccessTokenExpiresAt(LocalDateTime.now().plusSeconds(newToken.getExpiresIn()));
+                sync.setAccessTokenExpiryDate(OffsetDateTime.now().plusSeconds(newToken.getExpiresIn()));
             }
-
-            accountRepository.save(account);
-            log.info("Token refreshed successfully for {} - {}", user.getEmail(), provider);
-        } catch (Exception e) {
-            log.error("Failed to refresh token", e);
-            throw new ProviderAuthException(
-                provider.name(),
-                "Failed to refresh token: " + e.getMessage(),
-                e
-            );
+            CustomerUserSyncEntity saved = customerUserSyncRepository.save(sync);
+            log.info("Token refreshed for {} - {}", sync.getSyncEmail(), provider);
+            return saved;
+        } catch (OAuthException e) {
+            if ("invalid_grant".equalsIgnoreCase(e.getErrorCode())
+                    || (e.getMessage() != null && e.getMessage().contains("invalid_grant"))) {
+                log.error("invalid_grant for {} - {}: re-auth required", sync.getSyncEmail(), provider);
+                customerUserSyncRepository.save(sync);
+                throw new ProviderAuthException(provider.name(),
+                        "Refresh token revoked or expired. Re-authenticate required.");
+            }
+            throw new ProviderAuthException(provider.name(), "Token refresh failed: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Save new OAuth tokens after authentication
-     */
     @Transactional
-    public ConnectedAccountEntity saveOAuthTokens(UserEntity user, ProviderType provider,
-                                                  OAuthTokenDto tokenDto, String externalUserId) {
-        log.info("Saving OAuth tokens for {} - {}", user.getEmail(), provider);
-
-        ConnectedAccountEntity account = accountRepository.findByUserAndProvider(user, provider)
-                .orElse(ConnectedAccountEntity.builder()
-                    .user(user)
-                    .provider(provider)
-                    .build());
-
-        account.setAccessToken(tokenDto.getAccessToken());
-        account.setRefreshToken(tokenDto.getRefreshToken());
-        account.setIdToken(tokenDto.getIdToken());
-        account.setScope(tokenDto.getScope());
-        account.setExternalUserId(externalUserId);
-        account.setActive(true);
-        account.setLastTokenRefreshAt(LocalDateTime.now());
-
+    public void saveCustomerUserSyncTokens(CustomerUserSyncEntity sync, OAuthTokenDto tokenDto) {
+        sync.setAccessToken(tokenDto.getAccessToken());
+        if (tokenDto.getRefreshToken() != null) sync.setRefreshToken(tokenDto.getRefreshToken());
+        if (tokenDto.getIdToken() != null) sync.setIdToken(tokenDto.getIdToken());
+        if (tokenDto.getScope() != null) sync.setTokenScope(tokenDto.getScope());
         if (tokenDto.getExpiresIn() != null) {
-            account.setAccessTokenExpiresAt(
-                LocalDateTime.now().plusSeconds(tokenDto.getExpiresIn())
-            );
+            sync.setAccessTokenExpiryDate(OffsetDateTime.now().plusSeconds(tokenDto.getExpiresIn()));
         }
-
-        ConnectedAccountEntity saved = accountRepository.save(account);
-        log.info("OAuth tokens saved for {} - {}", user.getEmail(), provider);
-        return saved;
-    }
-
-    /**
-     * Revoke and disconnect account
-     */
-    @Transactional
-    public void disconnectAccount(UserEntity user, ProviderType provider) {
-        log.info("Disconnecting {} for user: {}", provider, user.getEmail());
-
-        ConnectedAccountEntity account = accountRepository.findByUserAndProvider(user, provider)
-                .orElseThrow(() -> new ProviderAuthException(provider.name(), "Account not connected"));
-
-        try {
-            IOAuthProvider oauthProvider = oauthProviders.get(provider);
-            if (oauthProvider != null && account.getAccessToken() != null) {
-                oauthProvider.revokeToken(account.getAccessToken());
-            }
-        } catch (Exception e) {
-            log.warn("Failed to revoke token from provider, but will disconnect", e);
-        }
-
-        account.setActive(false);
-        account.setAccessToken(null);
-        account.setRefreshToken(null);
-        account.setIdToken(null);
-
-        accountRepository.save(account);
-        log.info("Account disconnected: {} - {}", user.getEmail(), provider);
+        customerUserSyncRepository.save(sync);
     }
 }

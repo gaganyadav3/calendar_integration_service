@@ -1,209 +1,151 @@
 package com.omvrti.calendar_service.calendar.service;
 
 import com.omvrti.calendar_service.common.dto.EventDto;
-import com.omvrti.calendar_service.common.enums.EventSource;
 import com.omvrti.calendar_service.common.enums.ProviderType;
-import com.omvrti.calendar_service.persistence.entity.EventEntity;
-import com.omvrti.calendar_service.persistence.entity.UserEntity;
-import com.omvrti.calendar_service.persistence.entity.ConnectedAccountEntity;
-import com.omvrti.calendar_service.persistence.repository.EventRepository;
-import com.omvrti.calendar_service.persistence.repository.UserRepository;
+import com.omvrti.calendar_service.common.util.EventEntityMapper;
+import com.omvrti.calendar_service.persistence.entity.*;
+import com.omvrti.calendar_service.persistence.repository.*;
+import com.omvrti.calendar_service.persistence.service.SyncVendorService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * Service for managing calendar events
- * Handles CRUD operations on events
+ * Event management using the new CUSyncCalendar* entity model.
+ * All operations go through CUSyncCalendarEventEntity (mapped to CU_SYNC_CALENDAR_EVENT table).
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class EventManagementService {
 
-    private final EventRepository eventRepository;
-    private final UserRepository userRepository;
+    private final CustomerUserRepository customerUserRepository;
+    private final CustomerUserSyncRepository customerUserSyncRepository;
+    private final CUSyncCalendarRepository calendarRepository;
+    private final CUSyncCalendarEventRepository eventRepository;
+    private final CUSyncCalendarEventGuestRepository guestRepository;
+    private final EventReminderRepository reminderRepository;
+    private final SyncVendorService syncVendorService;
+    private final EventEntityMapper eventMapper;
 
-    /**
-     * Create or update event in database
-     */
+    // ── Save / upsert ─────────────────────────────────────────────────────────
+
     @Transactional
-    public EventEntity saveEvent(String userEmail, EventDto eventDto, ConnectedAccountEntity account) {
+    public CUSyncCalendarEventEntity saveEvent(String userEmail, EventDto eventDto,
+                                                CUSyncCalendarEntity calendar) {
         log.debug("Saving event: {} for user: {}", eventDto.getTitle(), userEmail);
 
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        // Generate internal ID if not present
-        String internalId = eventDto.getInternalId() != null ?
-            eventDto.getInternalId() :
-            generateInternalId(userEmail, eventDto);
-
-        // Check if event exists
-        Optional<EventEntity> existing = eventRepository.findByInternalId(internalId);
-
-        EventEntity event = existing.orElse(new EventEntity());
-        event.setUser(user);
-        event.setInternalId(internalId);
-        event.setExternalId(eventDto.getExternalId());
-
-        if (account != null) {
-            event.setConnectedAccount(account);
-            event.setProvider(account.getProvider());
+        Optional<CUSyncCalendarEventEntity> existing = Optional.empty();
+        if (eventDto.getExternalId() != null && calendar != null) {
+            existing = eventRepository.findByCuSyncCalendarAndCalendarEventReference(
+                    calendar, eventDto.getExternalId());
         }
 
-        event.setTitle(eventDto.getTitle());
-        event.setDescription(eventDto.getDescription());
-        event.setLocation(eventDto.getLocation());
-        event.setStartTime(eventDto.getStartTime());
-        event.setEndTime(eventDto.getEndTime());
-        event.setTimeZoneId(eventDto.getTimeZoneId());
-        event.setAllDay(eventDto.isAllDay());
-        event.setStatus(eventDto.getStatus());
-        event.setOrganizer(eventDto.getOrganizer());
-        event.setCancelled(eventDto.isCancelled());
-        event.setSource(eventDto.getSource() != null ? eventDto.getSource() : EventSource.INTERNAL);
-        event.setExternalUpdatedAt(eventDto.getExternalUpdatedAt());
-        event.setDeleted(false);
-        long currentVersion = event.getVersion() == null ? 0L : event.getVersion();
-        event.setVersion(currentVersion + 1);
+        CUSyncCalendarEventEntity event = existing.orElse(CUSyncCalendarEventEntity.builder()
+                .cuSyncCalendar(calendar)
+                .calendarEventReference(eventDto.getExternalId())
+                .isAllDay(0)
+                .isVisible(1)
+                .build());
 
-        EventEntity saved = eventRepository.save(event);
-        log.debug("Event saved: {}", saved.getInternalId());
-        return saved;
+        eventMapper.updateEntityFromDto(eventDto, event);
+        return eventRepository.save(event);
     }
 
-    /**
-     * Save multiple events in bulk
-     */
     @Transactional
-    public List<EventEntity> saveEvents(String userEmail, List<EventDto> events, ConnectedAccountEntity account) {
-        log.info("Saving {} events for user: {}", events.size(), userEmail);
+    public List<CUSyncCalendarEventEntity> saveEvents(String userEmail, List<EventDto> events,
+                                                       CUSyncCalendarEntity calendar) {
         return events.stream()
-                .map(dto -> saveEvent(userEmail, dto, account))
+                .map(dto -> saveEvent(userEmail, dto, calendar))
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Mark event as deleted (soft delete)
-     */
+    // ── Delete ────────────────────────────────────────────────────────────────
+
     @Transactional
-    public void deleteEvent(String internalId) {
-        log.debug("Soft-deleting event: {}", internalId);
-
-        EventEntity event = eventRepository.findByInternalId(internalId)
-                .orElseThrow(() -> new IllegalArgumentException("Event not found: " + internalId));
-
-        event.setDeleted(true);
-        eventRepository.save(event);
-        log.debug("Event marked as deleted: {}", internalId);
+    public void deleteEvent(String calendarEventReference) {
+        log.debug("Deleting event by reference: {}", calendarEventReference);
+        eventRepository.findByCalendarEventReference(calendarEventReference)
+                .forEach(e -> {
+                    guestRepository.findByCuSyncCalendarEvent(e).forEach(guestRepository::delete);
+                    reminderRepository.findByCuSyncCalendarEvent(e).forEach(reminderRepository::delete);
+                    eventRepository.delete(e);
+                });
     }
 
-    /**
-     * Get event by internal ID
-     */
-    public EventEntity getEvent(String internalId) {
-        return eventRepository.findByInternalId(internalId)
-                .orElseThrow(() -> new IllegalArgumentException("Event not found: " + internalId));
+    // ── Read ──────────────────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public CUSyncCalendarEventEntity getEvent(String calendarEventReference) {
+        return eventRepository.findByCalendarEventReference(calendarEventReference)
+                .stream().findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Event not found: " + calendarEventReference));
     }
 
-    /**
-     * Get all non-deleted events for user
-     */
-    public List<EventEntity> getUserEvents(String userEmail) {
+    @Transactional(readOnly = true)
+    public List<CUSyncCalendarEventEntity> getUserEvents(String userEmail) {
         log.debug("Fetching events for user: {}", userEmail);
-
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        return eventRepository.findByUserAndIsDeletedFalse(user);
+        return customerUserRepository.findByEmail(userEmail)
+                .map(user -> {
+                    List<CUSyncCalendarEntity> calendars = calendarRepository
+                            .findAll().stream()
+                            .filter(c -> c.getCustomerUserSync() != null
+                                    && c.getCustomerUserSync().getCustomerUser() != null
+                                    && user.getCustomerId().equals(
+                                            c.getCustomerUserSync().getCustomerUser().getCustomerId()))
+                            .collect(Collectors.toList());
+                    return calendars.stream()
+                            .flatMap(c -> eventRepository.findByCuSyncCalendar(c).stream())
+                            .collect(Collectors.toList());
+                })
+                .orElse(Collections.emptyList());
     }
 
-    /**
-     * Get events in date range
-     */
-    public List<EventEntity> getEventsInRange(String userEmail, OffsetDateTime start, OffsetDateTime end) {
-        log.debug("Fetching events for user {} in range {} - {}", userEmail, start, end);
-
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        return eventRepository.findByUserAndStartTimeBetweenAndIsDeletedFalse(user, start, end);
-    }
-
-    /**
-     * Get upcoming bookings (non-cancelled, future events)
-     */
-    public List<EventEntity> getUpcomingBookings(String userEmail) {
-        log.debug("Fetching upcoming bookings for user: {}", userEmail);
-
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        return eventRepository.findUpcomingBookings(user);
-    }
-
-    /**
-     * Get events by provider
-     */
-    public List<EventEntity> getEventsByProvider(String userEmail, ProviderType provider) {
+    @Transactional(readOnly = true)
+    public List<CUSyncCalendarEventEntity> getEventsByProvider(String userEmail, ProviderType provider) {
         log.debug("Fetching events for user {} from provider {}", userEmail, provider);
+        return customerUserRepository.findByEmail(userEmail)
+                .map(user -> {
+                    SyncVendorEntity vendor;
+                    try { vendor = syncVendorService.getVendor(provider); }
+                    catch (Exception e) { return Collections.<CUSyncCalendarEventEntity>emptyList(); }
 
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        return eventRepository.findByUserAndProviderAndIsDeletedFalse(user, provider);
+                    return customerUserSyncRepository
+                            .findByCustomerUserAndSyncVendor(user, vendor)
+                            .map(sync -> calendarRepository.findByCustomerUserSync(sync).stream()
+                                    .flatMap(c -> eventRepository.findByCuSyncCalendar(c).stream())
+                                    .collect(Collectors.toList()))
+                            .orElse(Collections.<CUSyncCalendarEventEntity>emptyList());
+                })
+                .orElse(Collections.emptyList());
     }
 
-    /**
-     * Find events by external ID and provider
-     */
-    public List<EventEntity> findByExternalIdAndProvider(String externalId, ProviderType provider) {
-        return eventRepository.findByExternalIdAndProvider(externalId, provider);
+    @Transactional(readOnly = true)
+    public List<CUSyncCalendarEventEntity> getEventsInRange(String userEmail,
+                                                              OffsetDateTime start, OffsetDateTime end) {
+        return getUserEvents(userEmail).stream()
+                .filter(e -> e.getEventStartDate() != null
+                        && !e.getEventStartDate().isBefore(start)
+                        && (e.getEventEndDate() == null || !e.getEventEndDate().isAfter(end)))
+                .collect(Collectors.toList());
     }
 
-    /**
-     * Count total events for user and provider
-     */
+    @Transactional(readOnly = true)
+    public List<CUSyncCalendarEventEntity> getUpcomingEvents(String userEmail) {
+        return getUserEvents(userEmail).stream()
+                .filter(e -> e.getEventEndDate() != null
+                        && e.getEventEndDate().isAfter(OffsetDateTime.now()))
+                .collect(Collectors.toList());
+    }
+
     public long countEvents(String userEmail, ProviderType provider) {
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        return eventRepository.countEventsByUserAndProvider(user, provider);
-    }
-
-    /**
-     * Count upcoming bookings for user and provider
-     */
-    public long countUpcomingBookings(String userEmail, ProviderType provider) {
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        return eventRepository.countUpcomingBookingsByUserAndProvider(user, provider);
-    }
-
-    /**
-     * Get recently updated events for sync
-     */
-    public List<EventEntity> getRecentlyUpdatedEvents(String userEmail, ProviderType provider, OffsetDateTime since) {
-        log.debug("Fetching recently updated events for user {} from {} since {}", userEmail, provider, since);
-
-        UserEntity user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userEmail));
-
-        return eventRepository.findByUserAndProviderAndUpdatedAtAfterAndIsDeletedFalse(user, provider, since);
-    }
-
-    private String generateInternalId(String userEmail, EventDto event) {
-        return UUID.nameUUIDFromBytes(
-            (userEmail + event.getTitle() + event.getStartTime()).getBytes()
-        ).toString();
+        return getEventsByProvider(userEmail, provider).size();
     }
 }

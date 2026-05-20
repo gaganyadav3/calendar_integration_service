@@ -1,21 +1,15 @@
 package com.omvrti.calendar_service.calendar.sync;
 
 import com.omvrti.calendar_service.calendar.provider.ICalendarProvider;
-import com.omvrti.calendar_service.calendar.service.EventManagementService;
+import com.omvrti.calendar_service.calendar.service.ProviderCalendarService;
 import com.omvrti.calendar_service.common.dto.EventDto;
-import com.omvrti.calendar_service.common.enums.EventSource;
 import com.omvrti.calendar_service.common.enums.ProviderType;
 import com.omvrti.calendar_service.common.exception.CalendarException;
 import com.omvrti.calendar_service.common.exception.SyncException;
-import com.omvrti.calendar_service.oauth.service.TokenRefreshService;
-import com.omvrti.calendar_service.persistence.entity.ConnectedAccountEntity;
-import com.omvrti.calendar_service.persistence.entity.EventEntity;
-import com.omvrti.calendar_service.persistence.entity.SyncMetadataEntity;
-import com.omvrti.calendar_service.persistence.entity.UserEntity;
-import com.omvrti.calendar_service.persistence.repository.ConnectedAccountRepository;
-import com.omvrti.calendar_service.persistence.repository.EventRepository;
-import com.omvrti.calendar_service.persistence.repository.SyncMetadataRepository;
-import com.omvrti.calendar_service.persistence.repository.UserRepository;
+import com.omvrti.calendar_service.persistence.entity.*;
+import com.omvrti.calendar_service.persistence.repository.CustomerUserRepository;
+import com.omvrti.calendar_service.persistence.repository.CustomerUserSyncRepository;
+import com.omvrti.calendar_service.persistence.service.SyncVendorService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,338 +17,194 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
-/**
- * Core sync engine for two-way calendar synchronization
- * Handles pulling events from providers and pushing local changes
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class SyncEngine {
 
-    private final ConnectedAccountRepository accountRepository;
-    private final UserRepository userRepository;
-    private final EventRepository eventRepository;
-    private final SyncMetadataRepository syncMetadataRepository;
-    private final EventManagementService eventManagementService;
-    private final TokenRefreshService tokenRefreshService;
+    private final CustomerUserRepository customerUserRepository;
+    private final CustomerUserSyncRepository customerUserSyncRepository;
+    private final ProviderCalendarService providerCalendarService;
+    private final SyncVendorService syncVendorService;
+    private final SyncStatusPersistenceService syncStatusPersistenceService;
+    private final EventMergePersistenceService eventMergePersistenceService;
     private final Map<ProviderType, ICalendarProvider> calendarProviders;
 
-    private static final int MAX_RETRY_ATTEMPTS = 3;
-    private static final long SYNC_INTERVAL_MINUTES = 5;
+    // ── Entry point ───────────────────────────────────────────────────────────
 
     /**
-     * Perform full two-way sync for a user and provider
+     * Full sync for one user + provider.
+     *
+     * NOT @Transactional on this method intentionally:
+     * - Status updates use REQUIRES_NEW (SyncStatusPersistenceService) and commit independently.
+     * - Each event merge uses REQUIRES_NEW (EventMergePersistenceService) so one bad event
+     *   never rolls back others.
+     * - Lazy loading is avoided by using the JOIN FETCH query for the sync entity.
      */
-    @Transactional
     public SyncResult sync(String userEmail, ProviderType provider) {
         log.info("Starting sync for {} - {}", userEmail, provider);
 
-        try {
-            UserEntity user = userRepository.findByEmail(userEmail)
-                    .orElseThrow(() -> new SyncException("USER_NOT_FOUND", "User not found: " + userEmail));
+        SyncResult result = new SyncResult();
+        result.setProvider(provider);
+        result.setStartTime(LocalDateTime.now());
 
-            ConnectedAccountEntity account = accountRepository.findByUserAndProvider(user, provider)
-                    .orElseThrow(() -> new SyncException("ACCOUNT_NOT_CONNECTED", "Account not connected: " + provider));
+        CustomerUserEntity customerUser = customerUserRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new SyncException("USER_NOT_FOUND",
+                        "Customer user not found: " + userEmail));
 
-            if (!account.isActive()) {
-                throw new SyncException("ACCOUNT_INACTIVE", "Account is not active: " + provider);
-            }
+        SyncVendorEntity vendor = syncVendorService.getOrCreateVendor(provider);
 
-            SyncResult result = new SyncResult();
-            result.setProvider(provider);
-            result.setStartTime(LocalDateTime.now());
+        // Use the JOIN FETCH query so syncStatus + syncVendor are eagerly loaded (no lazy proxies).
+        CustomerUserSyncEntity sync = customerUserSyncRepository
+                .findByCustomerUserIdAndSyncVendorId(customerUser.getId(), vendor.getId())
+                .orElseThrow(() -> new SyncException("ACCOUNT_NOT_CONNECTED",
+                        "Provider not connected: " + provider));
 
-            try {
-                // Refresh token if needed
-                tokenRefreshService.getValidAccessToken(userEmail, provider);
-
-                // 1. Pull changes from provider
-                pullRemoteChanges(user, account, result);
-
-                // 2. Push local changes to provider
-                pushLocalChanges(user, account, result);
-
-                // 3. Update sync metadata
-                updateSyncMetadata(user, provider, result, true);
-
-                result.setStatus("SUCCESS");
-                result.setEndTime(LocalDateTime.now());
-                log.info("Sync completed successfully for {} - {}", userEmail, provider);
-
-            } catch (Exception e) {
-                log.error("Sync failed for {} - {}", userEmail, provider, e);
-                result.setStatus("FAILED");
-                result.setErrorMessage(e.getMessage());
-                result.setEndTime(LocalDateTime.now());
-
-                updateSyncMetadata(user, provider, result, false);
-                throw new SyncException("SYNC_FAILED", "Sync failed: " + e.getMessage(), e);
-            }
-
-            return result;
-        } catch (Exception e) {
-            log.error("Sync error", e);
-            throw e instanceof SyncException ? (SyncException) e :
-                  new SyncException("SYNC_ERROR", "Sync failed: " + e.getMessage(), e);
+        if (!Integer.valueOf(1).equals(sync.getIsActive())) {
+            throw new SyncException("ACCOUNT_INACTIVE", "Provider sync is inactive: " + provider);
         }
-    }
 
-    /**
-     * Pull remote changes from provider and merge locally.
-     * Uses sync-token-based incremental sync when the provider supports it (Google).
-     * Falls back to time-based fetch for providers that do not support sync tokens.
-     */
-    private void pullRemoteChanges(UserEntity user, ConnectedAccountEntity account, SyncResult result) {
-        log.debug("Pulling remote changes from {}", account.getProvider());
+        ICalendarProvider calendarProvider = calendarProviders.get(provider);
+        if (calendarProvider == null) {
+            throw new SyncException("PROVIDER_NOT_FOUND", "Calendar provider not registered: " + provider);
+        }
+
+        // Mark IN_PROGRESS in its own committed transaction (not rolled back on failure)
+        syncStatusPersistenceService.markInProgress(sync.getId());
 
         try {
-            ICalendarProvider provider = calendarProviders.get(account.getProvider());
-            if (provider == null) {
-                throw new SyncException("PROVIDER_NOT_FOUND", "Provider not found: " + account.getProvider());
-            }
+            fetchAndSaveCalendars(sync, calendarProvider);
 
-            SyncMetadataEntity metadata = syncMetadataRepository
-                    .findByUserAndProvider(user, account.getProvider())
-                    .orElse(null);
+            List<CUSyncCalendarEntity> enabledCalendars =
+                    providerCalendarService.getEnabledCalendars(sync);
 
-            List<EventDto> remoteEvents;
-            ICalendarProvider.SyncFetchResult syncFetchResult = null;
-
-            // Try sync-token path first (Google supports this; others return null)
-            String existingSyncToken = metadata != null ? metadata.getLastSyncToken() : null;
-
-            if (existingSyncToken != null) {
-                log.info("Incremental sync started for {} - {} using sync token", user.getEmail(), account.getProvider());
-            } else {
-                log.info("Full sync started for {} - {} (no sync token)", user.getEmail(), account.getProvider());
-            }
-
-            try {
-                syncFetchResult = provider.fetchEventsWithToken(account, existingSyncToken);
-            } catch (CalendarException e) {
-                if ("SYNC_TOKEN_EXPIRED".equals(e.getErrorCode())) {
-                    log.warn("Sync token expired for {} - {}. Clearing token and performing full resync.",
-                            user.getEmail(), account.getProvider());
-                    if (metadata != null) {
-                        metadata.setLastSyncToken(null);
-                        syncMetadataRepository.save(metadata);
-                    }
-                    log.info("Full resync started for {} - {}", user.getEmail(), account.getProvider());
-                    syncFetchResult = provider.fetchEventsWithToken(account, null);
-                } else {
-                    throw e;
-                }
-            }
-
-            if (syncFetchResult != null) {
-                remoteEvents = syncFetchResult.events();
-                String nextSyncToken = syncFetchResult.nextSyncToken();
-                if (nextSyncToken != null) {
-                    SyncMetadataEntity meta = metadata != null ? metadata
-                            : SyncMetadataEntity.builder().user(user).provider(account.getProvider()).build();
-                    meta.setLastSyncToken(nextSyncToken);
-                    syncMetadataRepository.save(meta);
-                }
-                log.info("Sync fetch complete for {} - {}: {} events", user.getEmail(), account.getProvider(), remoteEvents.size());
-            } else {
-                // Provider does not support sync tokens — fall back to time-based fetch
-                OffsetDateTime syncSince = metadata != null && metadata.getLastSyncTime() != null
-                        ? metadata.getLastSyncTime().atZone(ZoneOffset.UTC).toOffsetDateTime()
-                        : OffsetDateTime.now().minusDays(30);
-                remoteEvents = provider.fetchEvents(account, syncSince);
-                log.info("Time-based sync fetched {} events from {}", remoteEvents.size(), account.getProvider());
-            }
-
-            for (EventDto remoteEvent : remoteEvents) {
+            for (CUSyncCalendarEntity calendar : enabledCalendars) {
                 try {
-                    mergeRemoteEvent(user, account, remoteEvent);
+                    syncCalendarEvents(sync, calendar, calendarProvider, result);
                 } catch (Exception e) {
-                    log.warn("Failed to merge remote event {}", remoteEvent.getExternalId(), e);
-                    result.getFailedRemoteEventIds().add(remoteEvent.getExternalId());
+                    log.error("Failed to sync calendar {} for {}: {}",
+                            calendar.getCalendarReference(), userEmail, e.getMessage(), e);
+                    result.getFailedCalendarIds().add(calendar.getCalendarReference());
                 }
             }
 
-            result.setFetchedRemoteCount(remoteEvents.size());
+            // Mark SUCCESS — committed immediately, independently of any outer tx
+            syncStatusPersistenceService.markSuccess(sync.getId());
+            result.setStatus("SUCCESS");
+            result.setEndTime(LocalDateTime.now());
+            log.info("Sync completed for {} - {}: fetched={} synced={}",
+                    userEmail, provider, result.getFetchedRemoteCount(), result.getSyncedCalendarCount());
 
+        } catch (SyncException e) {
+            syncStatusPersistenceService.markFailed(sync.getId(), e.getMessage());
+            result.setStatus("FAILED");
+            result.setErrorMessage(e.getMessage());
+            result.setEndTime(LocalDateTime.now());
+            throw e;
         } catch (Exception e) {
-            log.error("Error pulling remote changes for {} - {}", user.getEmail(), account.getProvider(), e);
-            throw new SyncException("PULL_FAILED", "Failed to pull remote changes: " + e.getMessage(), e);
+            syncStatusPersistenceService.markFailed(sync.getId(), e.getMessage());
+            result.setStatus("FAILED");
+            result.setErrorMessage(e.getMessage());
+            result.setEndTime(LocalDateTime.now());
+            throw new SyncException("SYNC_FAILED", "Sync failed: " + e.getMessage(), e);
         }
+
+        return result;
     }
 
     /**
-     * Merge a remote event into local database.
-     * Cancelled events mark the local record deleted; all others are upserted.
-     */
-    private void mergeRemoteEvent(UserEntity user, ConnectedAccountEntity account, EventDto remoteEvent) {
-        log.debug("Merging remote event: {}", remoteEvent.getExternalId());
-
-        List<EventEntity> existingList = eventRepository.findByExternalIdAndProvider(
-                remoteEvent.getExternalId(), account.getProvider());
-        Optional<EventEntity> existing = existingList.isEmpty()
-                ? Optional.empty() : Optional.of(existingList.get(0));
-
-        if (remoteEvent.isCancelled()) {
-            // Mark cancelled/deleted events locally without creating a new record
-            existing.ifPresent(local -> {
-                if (!local.isDeleted() || !local.isCancelled()) {
-                    log.debug("Marking event as cancelled/deleted: {}", remoteEvent.getExternalId());
-                    local.setDeleted(true);
-                    local.setCancelled(true);
-                    eventRepository.save(local);
-                }
-            });
-            return;
-        }
-
-        if (existing.isPresent()) {
-            EventEntity local = existing.get();
-            boolean remoteIsNewer = remoteEvent.getExternalUpdatedAt() == null
-                    || local.getExternalUpdatedAt() == null
-                    || remoteEvent.getExternalUpdatedAt().isAfter(local.getExternalUpdatedAt());
-
-            if (remoteIsNewer) {
-                log.debug("Updating local event with remote changes: {}", remoteEvent.getExternalId());
-                remoteEvent.setInternalId(local.getInternalId());
-                remoteEvent.setSource(EventSource.valueOf(account.getProvider().name()));
-                remoteEvent.setProvider(account.getProvider());
-                eventManagementService.saveEvent(user.getEmail(), remoteEvent, account);
-            }
-        } else {
-            log.debug("Adding new remote event: {}", remoteEvent.getExternalId());
-            remoteEvent.setSource(EventSource.valueOf(account.getProvider().name()));
-            remoteEvent.setProvider(account.getProvider());
-            eventManagementService.saveEvent(user.getEmail(), remoteEvent, account);
-        }
-    }
-
-    /**
-     * Push local changes to provider
-     */
-    private void pushLocalChanges(UserEntity user, ConnectedAccountEntity account, SyncResult result) {
-        log.debug("Pushing local changes to {}", account.getProvider());
-
-        try {
-            ICalendarProvider provider = calendarProviders.get(account.getProvider());
-            if (provider == null) {
-                throw new SyncException("PROVIDER_NOT_FOUND", "Provider not found: " + account.getProvider());
-            }
-
-            // Get events that were created/updated locally (by INTERNAL source) after last sync
-            Optional<SyncMetadataEntity> metadata = syncMetadataRepository.findByUserAndProvider(user, account.getProvider());
-            OffsetDateTime pushSince = metadata
-                    .map(m -> m.getLastSyncTime() != null ?
-                        m.getLastSyncTime().atZone(ZoneOffset.UTC).toOffsetDateTime() : null)
-                    .orElse(OffsetDateTime.now().minusDays(30));
-
-            List<EventEntity> localChanges = eventRepository.findByUserAndProviderAndUpdatedAtAfter(
-                user, account.getProvider(), pushSince
-            ).stream()
-                    .filter(e -> e.getSource() == EventSource.INTERNAL)
-                    .collect(Collectors.toList());
-
-            log.info("Pushing {} local changes", localChanges.size());
-
-            for (EventEntity localEvent : localChanges) {
-                try {
-                    pushLocalEvent(provider, account, localEvent);
-                    result.setPushedLocalCount(result.getPushedLocalCount() + 1);
-                } catch (Exception e) {
-                    log.warn("Failed to push local event", e);
-                    result.getFailedLocalEventIds().add(localEvent.getInternalId());
-                }
-            }
-
-            log.debug("Pushed {} local changes", result.getPushedLocalCount());
-
-        } catch (Exception e) {
-            log.error("Error pushing local changes", e);
-            throw new SyncException("PUSH_FAILED", "Failed to push local changes: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Push a single local event to provider
-     */
-    private void pushLocalEvent(ICalendarProvider provider, ConnectedAccountEntity account, EventEntity localEvent) {
-        log.debug("Pushing local event: {}", localEvent.getInternalId());
-
-        if (localEvent.isDeleted()) {
-            if (localEvent.getExternalId() != null) {
-                provider.deleteEvent(account, localEvent.getExternalId());
-                log.debug("Deleted event in provider: {}", localEvent.getExternalId());
-            }
-            return;
-        }
-
-        EventDto dto = convertEntityToDto(localEvent);
-
-        if (localEvent.getExternalId() == null) {
-            // Create new event in provider
-            String externalId = provider.createEvent(account, dto);
-            localEvent.setExternalId(externalId);
-            eventRepository.save(localEvent);
-            log.debug("Created new event in provider: {}", externalId);
-        } else {
-            // Update existing event in provider
-            provider.updateEvent(account, localEvent.getExternalId(), dto);
-            log.debug("Updated event in provider: {}", localEvent.getExternalId());
-        }
-    }
-
-    /**
-     * Update sync metadata after sync completes
+     * Incremental sync for a single calendar (triggered from a webhook callback).
+     * Status is not updated here — this is a lightweight targeted operation.
      */
     @Transactional
-    protected void updateSyncMetadata(UserEntity user, ProviderType provider, SyncResult result, boolean success) {
-        log.debug("Updating sync metadata for {} - {}", user.getEmail(), provider);
+    public void triggerIncrementalSync(CustomerUserSyncEntity sync, CUSyncCalendarEntity calendar) {
+        String vendorCode = sync.getSyncVendor() != null
+                ? sync.getSyncVendor().getVendorCode() : null;
+        if (vendorCode == null) {
+            log.warn("No vendor on sync entity — cannot determine provider for incremental sync");
+            return;
+        }
+        ProviderType provider;
+        try {
+            provider = ProviderType.valueOf(vendorCode);
+        } catch (IllegalArgumentException e) {
+            log.warn("Unknown vendor code '{}' for incremental sync", vendorCode);
+            return;
+        }
+        ICalendarProvider calendarProvider = calendarProviders.get(provider);
+        if (calendarProvider == null) {
+            log.warn("No calendar provider found for {}", provider);
+            return;
+        }
+        log.info("Incremental sync triggered for calendar {} via webhook", calendar.getCalendarReference());
+        SyncResult result = new SyncResult();
+        syncCalendarEvents(sync, calendar, calendarProvider, result);
+        log.info("Incremental sync complete: fetched={}", result.getFetchedRemoteCount());
+    }
 
-        SyncMetadataEntity metadata = syncMetadataRepository.findByUserAndProvider(user, provider)
-                .orElse(SyncMetadataEntity.builder()
-                    .user(user)
-                    .provider(provider)
-                    .build());
+    // ── Calendar list sync ────────────────────────────────────────────────────
 
-        if (success) {
-            metadata.setLastSyncTime(LocalDateTime.now());
-            metadata.setLastSyncCount((int) (result.getFetchedRemoteCount() + result.getPushedLocalCount()));
-            metadata.setLastSyncStatus("SUCCESS");
-            metadata.setConsecutiveFailures(0);
-            metadata.setLastErrorMessage(null);
-        } else {
-            metadata.setLastSyncStatus("FAILED");
-            metadata.setLastErrorMessage(result.getErrorMessage());
-            metadata.setConsecutiveFailures((metadata.getConsecutiveFailures() != null ?
-                metadata.getConsecutiveFailures() : 0) + 1);
+    private void fetchAndSaveCalendars(CustomerUserSyncEntity sync, ICalendarProvider provider) {
+        try {
+            List<ICalendarProvider.CalendarInfo> remoteCalendars = provider.fetchCalendars(sync);
+            for (ICalendarProvider.CalendarInfo info : remoteCalendars) {
+                providerCalendarService.createOrUpdateCalendar(
+                        sync, info.id(), info.name(), info.color(),
+                        info.timeZone(), info.isPrimary(), info.isWritable());
+            }
+            log.info("Calendar list sync: {} calendars for {}", remoteCalendars.size(), sync.getSyncEmail());
+        } catch (Exception e) {
+            log.warn("Failed to fetch calendar list for {}: {}", sync.getSyncEmail(), e.getMessage());
+        }
+    }
+
+    // ── Per-calendar event sync ───────────────────────────────────────────────
+
+    private void syncCalendarEvents(CustomerUserSyncEntity sync, CUSyncCalendarEntity calendar,
+                                    ICalendarProvider provider, SyncResult result) {
+        log.debug("Syncing events for calendar {}", calendar.getCalendarReference());
+
+        ICalendarProvider.SyncFetchResult fetchResult = null;
+        try {
+            fetchResult = provider.fetchEventsWithToken(sync, calendar.getCalendarReference(), null);
+        } catch (CalendarException e) {
+            log.debug("Token-based sync not supported for {}: {}", calendar.getCalendarReference(), e.getMessage());
         }
 
-        syncMetadataRepository.save(metadata);
+        if (fetchResult == null) {
+            OffsetDateTime since = calendar.getLastEventSyncDate() != null
+                    ? calendar.getLastEventSyncDate()
+                    : OffsetDateTime.now().minusDays(90);
+            List<EventDto> events = provider.fetchEvents(sync, calendar.getCalendarReference(), since);
+            for (EventDto e : events) mergeEvent(calendar.getId(), e, result);
+        } else {
+            for (EventDto e : fetchResult.events()) mergeEvent(calendar.getId(), e, result);
+        }
+
+        providerCalendarService.updateSyncCursor(calendar);
+        result.setSyncedCalendarCount(result.getSyncedCalendarCount() + 1);
     }
 
-    private EventDto convertEntityToDto(EventEntity entity) {
-        return EventDto.builder()
-                .internalId(entity.getInternalId())
-                .externalId(entity.getExternalId())
-                .title(entity.getTitle())
-                .description(entity.getDescription())
-                .location(entity.getLocation())
-                .startTime(entity.getStartTime())
-                .endTime(entity.getEndTime())
-                .timeZoneId(entity.getTimeZoneId())
-                .allDay(entity.isAllDay())
-                .status(entity.getStatus())
-                .isCancelled(entity.isCancelled())
-                .build();
+    // ── Event upsert (delegates to REQUIRES_NEW service) ─────────────────────
+
+    private void mergeEvent(Long calendarId, EventDto dto, SyncResult result) {
+        try {
+            boolean merged = eventMergePersistenceService.mergeEvent(calendarId, dto);
+            result.setFetchedRemoteCount(result.getFetchedRemoteCount() + 1);
+            log.debug("{} event {}", merged ? "Saved" : "Cancelled/Skipped", dto.getExternalId());
+        } catch (Exception e) {
+            log.warn("Failed to merge event {} for calendar {}: {}",
+                    dto.getExternalId(), calendarId, e.getMessage(), e);
+            result.getFailedRemoteEventIds().add(dto.getExternalId());
+        }
     }
 
-    /**
-     * Result of a sync operation
-     */
+    // ── SyncResult ────────────────────────────────────────────────────────────
+
     public static class SyncResult {
         private ProviderType provider;
         private LocalDateTime startTime;
@@ -362,33 +212,31 @@ public class SyncEngine {
         private String status;
         private String errorMessage;
         private long fetchedRemoteCount;
-        private long pushedLocalCount;
-        private List<String> failedRemoteEventIds = new ArrayList<>();
-        private List<String> failedLocalEventIds = new ArrayList<>();
+        private int syncedCalendarCount;
+        private final List<String> failedRemoteEventIds = new ArrayList<>();
+        private final List<String> failedCalendarIds = new ArrayList<>();
 
-        // Getters and setters
         public ProviderType getProvider() { return provider; }
-        public void setProvider(ProviderType provider) { this.provider = provider; }
+        public void setProvider(ProviderType v) { provider = v; }
         public LocalDateTime getStartTime() { return startTime; }
-        public void setStartTime(LocalDateTime startTime) { this.startTime = startTime; }
+        public void setStartTime(LocalDateTime v) { startTime = v; }
         public LocalDateTime getEndTime() { return endTime; }
-        public void setEndTime(LocalDateTime endTime) { this.endTime = endTime; }
+        public void setEndTime(LocalDateTime v) { endTime = v; }
         public String getStatus() { return status; }
-        public void setStatus(String status) { this.status = status; }
+        public void setStatus(String v) { status = v; }
         public String getErrorMessage() { return errorMessage; }
-        public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+        public void setErrorMessage(String v) { errorMessage = v; }
         public long getFetchedRemoteCount() { return fetchedRemoteCount; }
-        public void setFetchedRemoteCount(long count) { this.fetchedRemoteCount = count; }
-        public long getPushedLocalCount() { return pushedLocalCount; }
-        public void setPushedLocalCount(long count) { this.pushedLocalCount = count; }
+        public void setFetchedRemoteCount(long v) { fetchedRemoteCount = v; }
+        public int getSyncedCalendarCount() { return syncedCalendarCount; }
+        public void setSyncedCalendarCount(int v) { syncedCalendarCount = v; }
         public List<String> getFailedRemoteEventIds() { return failedRemoteEventIds; }
-        public List<String> getFailedLocalEventIds() { return failedLocalEventIds; }
+        public List<String> getFailedCalendarIds() { return failedCalendarIds; }
 
         @Override
         public String toString() {
-            return String.format("SyncResult{provider=%s, fetched=%d, pushed=%d, status=%s}",
-                provider, fetchedRemoteCount, pushedLocalCount, status);
+            return String.format("SyncResult{provider=%s, fetched=%d, calendars=%d, status=%s}",
+                    provider, fetchedRemoteCount, syncedCalendarCount, status);
         }
     }
 }
-

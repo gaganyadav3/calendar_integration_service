@@ -2,92 +2,133 @@ package com.omvrti.calendar_service.calendar.provider;
 
 import com.omvrti.calendar_service.common.dto.EventDto;
 import com.omvrti.calendar_service.common.enums.ProviderType;
-import com.omvrti.calendar_service.persistence.entity.ConnectedAccountEntity;
+import com.omvrti.calendar_service.persistence.entity.CustomerUserSyncEntity;
 
 import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
- * Generic interface for calendar providers
- * Abstracts away provider-specific API details
+ * Generic interface for calendar providers.
+ * All methods operate on CustomerUserSyncEntity which consolidates OAuth tokens
+ * and sync metadata for a user-provider pair.
  */
 public interface ICalendarProvider {
-    
-    /**
-     * Get the provider type
-     */
+
     ProviderType getProviderType();
-    
-    /**
-     * Fetch events since last sync
-     * @param account Connected account with auth details
-     * @param since Last sync time (for incremental sync)
-     * @return List of events from provider
-     */
-    List<EventDto> fetchEvents(ConnectedAccountEntity account, OffsetDateTime since);
 
     /**
-     * Fetch all events (full sync)
+     * Fetch list of calendars available for this sync account.
      */
-    List<EventDto> fetchAllEvents(ConnectedAccountEntity account);
+    List<CalendarInfo> fetchCalendars(CustomerUserSyncEntity sync);
 
     /**
-     * Create a new event in the provider's calendar
-     * @return External event ID from provider
+     * Fetch events from a specific calendar since the given time.
      */
-    String createEvent(ConnectedAccountEntity account, EventDto event);
+    List<EventDto> fetchEvents(CustomerUserSyncEntity sync, String calendarId, OffsetDateTime since);
 
     /**
-     * Update an existing event in provider's calendar
+     * Fetch all events from a specific calendar (full sync).
      */
-    void updateEvent(ConnectedAccountEntity account, String externalEventId, EventDto event);
+    List<EventDto> fetchAllEvents(CustomerUserSyncEntity sync, String calendarId);
 
     /**
-     * Delete an event from provider's calendar
+     * Incremental sync using a sync token (Google) or delta link (Outlook).
+     * Pass null syncToken for a full sync that returns the initial token.
+     * Returns null if the provider does not support token-based sync.
      */
-    void deleteEvent(ConnectedAccountEntity account, String externalEventId);
-
-    /**
-     * Get a single event by external ID
-     */
-    EventDto getEvent(ConnectedAccountEntity account, String externalEventId);
-
-    /**
-     * Get user profile information
-     */
-    String getUserEmail(String accessToken);
-
-    /**
-     * Parse provider's event format to our internal EventDto format
-     */
-    EventDto parseEvent(Object providerEvent);
-
-    /**
-     * Get current state summary
-     */
-    CalendarStateSummary getCurrentStateSummary(ConnectedAccountEntity account);
-
-    /**
-     * Fetch events using a sync token for incremental sync.
-     * Pass null syncToken to perform a full sync and receive the initial token.
-     * Returns null if the provider does not support sync tokens.
-     */
-    default SyncFetchResult fetchEventsWithToken(ConnectedAccountEntity account, String syncToken) {
+    default SyncFetchResult fetchEventsWithToken(CustomerUserSyncEntity sync, String calendarId, String syncToken) {
         return null;
     }
 
     /**
-     * Calendar state summary with counts
+     * Create a new event in the provider's calendar.
+     * @return External event ID assigned by the provider.
      */
+    String createEvent(CustomerUserSyncEntity sync, String calendarId, EventDto event);
+
+    /**
+     * Update an existing provider event.
+     */
+    void updateEvent(CustomerUserSyncEntity sync, String calendarId, String externalEventId, EventDto event);
+
+    /**
+     * Delete a provider event.
+     */
+    void deleteEvent(CustomerUserSyncEntity sync, String calendarId, String externalEventId);
+
+    /**
+     * Fetch a single event by its external provider ID.
+     */
+    EventDto getEvent(CustomerUserSyncEntity sync, String calendarId, String externalEventId);
+
+    /**
+     * Resolve user email from access token (used during OAuth flow).
+     */
+    String getUserEmail(String accessToken);
+
+    /**
+     * Parse a raw provider event object into our EventDto format.
+     */
+    EventDto parseEvent(Object providerEvent);
+
+    /**
+     * Get calendar statistics summary.
+     */
+    default CalendarStateSummary getCurrentStateSummary(CustomerUserSyncEntity sync, String calendarId) {
+        OffsetDateTime now = OffsetDateTime.now();
+        List<EventDto> all = fetchAllEvents(sync, calendarId);
+        long total = all.stream().filter(e -> !e.isCancelled()).count();
+        long upcoming = all.stream().filter(e -> !e.isCancelled() && e.getEndTime() != null && e.getEndTime().isAfter(now)).count();
+        return new CalendarStateSummary(total, upcoming, now);
+    }
+
+    // ── Webhook methods (optional; return null / no-op by default) ───────────
+
+    /**
+     * Register a push-notification webhook for a calendar.
+     * @return WebhookInfo with the channel/subscription ID and expiry date, or null if unsupported.
+     */
+    default WebhookInfo registerWebhook(CustomerUserSyncEntity sync, String calendarId, String callbackUrl) {
+        return null;
+    }
+
+    /**
+     * Renew / extend an existing webhook subscription.
+     */
+    default WebhookInfo renewWebhook(CustomerUserSyncEntity sync, String channelId, String calendarId, String callbackUrl) {
+        return null;
+    }
+
+    /**
+     * Cancel / stop an existing webhook subscription.
+     */
+    default void deleteWebhook(CustomerUserSyncEntity sync, String channelId, String resourceId) {}
+
+    // ── Records ──────────────────────────────────────────────────────────────
+
+    record CalendarInfo(
+        String id,
+        String name,
+        String color,
+        String timeZone,
+        boolean isPrimary,
+        boolean isWritable
+    ) {}
+
+    record WebhookInfo(
+        String channelId,
+        String resourceId,
+        OffsetDateTime expiryDate
+    ) {}
+
     record CalendarStateSummary(
         long totalEvents,
         long totalBookings,
         OffsetDateTime lastFetchTime
     ) {}
 
-    /**
-     * Result of a sync-token-based fetch, carrying both events and the next token.
-     */
-    record SyncFetchResult(List<EventDto> events, String nextSyncToken) {}
+    record SyncFetchResult(
+        List<EventDto> events,
+        String nextSyncToken
+    ) {}
 }
-

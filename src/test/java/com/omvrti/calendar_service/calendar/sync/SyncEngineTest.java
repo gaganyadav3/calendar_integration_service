@@ -1,19 +1,18 @@
 package com.omvrti.calendar_service.calendar.sync;
 
 import com.omvrti.calendar_service.calendar.provider.ICalendarProvider;
-import com.omvrti.calendar_service.calendar.service.EventManagementService;
+import com.omvrti.calendar_service.calendar.service.ProviderCalendarService;
+import com.omvrti.calendar_service.calendar.service.ProviderEventService;
 import com.omvrti.calendar_service.common.dto.EventDto;
 import com.omvrti.calendar_service.common.enums.EventSource;
 import com.omvrti.calendar_service.common.enums.ProviderType;
-import com.omvrti.calendar_service.oauth.service.TokenRefreshService;
-import com.omvrti.calendar_service.persistence.entity.ConnectedAccountEntity;
-import com.omvrti.calendar_service.persistence.entity.EventEntity;
-import com.omvrti.calendar_service.persistence.entity.SyncMetadataEntity;
-import com.omvrti.calendar_service.persistence.entity.UserEntity;
-import com.omvrti.calendar_service.persistence.repository.ConnectedAccountRepository;
-import com.omvrti.calendar_service.persistence.repository.EventRepository;
-import com.omvrti.calendar_service.persistence.repository.SyncMetadataRepository;
-import com.omvrti.calendar_service.persistence.repository.UserRepository;
+import com.omvrti.calendar_service.common.util.EventEntityMapper;
+import com.omvrti.calendar_service.persistence.entity.*;
+import com.omvrti.calendar_service.persistence.repository.CUSyncCalendarEventRepository;
+import com.omvrti.calendar_service.persistence.repository.CustomerUserRepository;
+import com.omvrti.calendar_service.persistence.repository.CustomerUserSyncRepository;
+import com.omvrti.calendar_service.persistence.service.SyncStatusService;
+import com.omvrti.calendar_service.persistence.service.SyncVendorService;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -23,85 +22,95 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class SyncEngineTest {
 
     @Test
-    void sync_pullsRemoteAndPushesOnlyInternal() {
-        ConnectedAccountRepository accountRepository = mock(ConnectedAccountRepository.class);
-        UserRepository userRepository = mock(UserRepository.class);
-        EventRepository eventRepository = mock(EventRepository.class);
-        SyncMetadataRepository metadataRepository = mock(SyncMetadataRepository.class);
-        EventManagementService eventManagementService = mock(EventManagementService.class);
-        TokenRefreshService tokenRefreshService = mock(TokenRefreshService.class);
+    void sync_fetchesAndPersistsRemoteEvents() {
+        CustomerUserRepository customerUserRepository = mock(CustomerUserRepository.class);
+        CustomerUserSyncRepository customerUserSyncRepository = mock(CustomerUserSyncRepository.class);
+        CUSyncCalendarEventRepository eventRepository = mock(CUSyncCalendarEventRepository.class);
+        ProviderCalendarService providerCalendarService = mock(ProviderCalendarService.class);
+        ProviderEventService providerEventService = mock(ProviderEventService.class);
+        SyncVendorService syncVendorService = mock(SyncVendorService.class);
+        SyncStatusService syncStatusService = mock(SyncStatusService.class);
+        EventEntityMapper eventMapper = mock(EventEntityMapper.class);
         ICalendarProvider provider = mock(ICalendarProvider.class);
 
         SyncEngine engine = new SyncEngine(
-                accountRepository,
-                userRepository,
+                customerUserRepository,
+                customerUserSyncRepository,
                 eventRepository,
-                metadataRepository,
-                eventManagementService,
-                tokenRefreshService,
+                providerCalendarService,
+                providerEventService,
+                syncVendorService,
+                syncStatusService,
+                eventMapper,
                 Map.of(ProviderType.GOOGLE, provider)
         );
 
-        UserEntity user = UserEntity.builder().id(1L).email("u@example.com").build();
-        ConnectedAccountEntity account = ConnectedAccountEntity.builder()
-                .id(2L)
-                .user(user)
-                .provider(ProviderType.GOOGLE)
-                .externalUserId("u@example.com")
-                .isActive(true)
-                .accessToken("t")
+        CustomerUserEntity customerUser = CustomerUserEntity.builder()
+                .email("u@example.com").build();
+
+        SyncVendorEntity vendor = SyncVendorEntity.builder()
+                .name("GOOGLE")
+                .displayName("Google Calendar")
+                .apiAuthType(1).vendorType(1).isNewConnection(0).isValid(1).displaySortOrder(0)
                 .build();
 
-        when(userRepository.findByEmail("u@example.com")).thenReturn(Optional.of(user));
-        when(accountRepository.findByUserAndProvider(user, ProviderType.GOOGLE)).thenReturn(Optional.of(account));
-        when(metadataRepository.findByUserAndProvider(user, ProviderType.GOOGLE)).thenReturn(Optional.of(
-                SyncMetadataEntity.builder().user(user).provider(ProviderType.GOOGLE).lastSyncTime(LocalDateTime.now().minusMinutes(10)).build()
-        ));
+        CustomerUserSyncEntity sync = CustomerUserSyncEntity.builder()
+                .customerUser(customerUser)
+                .syncVendor(vendor)
+                .syncingAccountReference("u@example.com")
+                .accessTokenExpiryDate(LocalDateTime.now().plusHours(1))
+                .build();
+        sync.setAccessToken("tok");
 
-        when(provider.fetchEvents(eq(account), any())).thenReturn(List.of(
-                EventDto.builder().externalId("g1").title("remote").startTime(OffsetDateTime.now(ZoneOffset.UTC)).endTime(OffsetDateTime.now(ZoneOffset.UTC).plusHours(1)).externalUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC)).build()
-        ));
-        when(eventRepository.findByExternalIdAndProvider(anyString(), any())).thenReturn(List.of());
-
-        EventEntity internalChange = EventEntity.builder()
-                .id(10L)
-                .user(user)
-                .provider(ProviderType.GOOGLE)
-                .internalId("i1")
-                .title("local")
-                .startTime(OffsetDateTime.now(ZoneOffset.UTC))
-                .endTime(OffsetDateTime.now(ZoneOffset.UTC).plusHours(1))
-                .source(EventSource.INTERNAL)
-                .isDeleted(false)
-                .version(1L)
+        CUSyncCalendarEntity calendar = CUSyncCalendarEntity.builder()
+                .customerUserSync(sync)
+                .calendarReference("primary")
+                .isEnabled(1)
                 .build();
 
-        EventEntity providerSourcedChange = EventEntity.builder()
-                .id(11L)
-                .user(user)
-                .provider(ProviderType.GOOGLE)
-                .internalId("i2")
-                .title("remote-local")
+        when(customerUserRepository.findByEmail("u@example.com")).thenReturn(Optional.of(customerUser));
+        when(syncVendorService.getOrCreateVendor(ProviderType.GOOGLE)).thenReturn(vendor);
+        when(customerUserSyncRepository.findByCustomerUserAndSyncVendor(customerUser, vendor))
+                .thenReturn(Optional.of(sync));
+        when(providerCalendarService.getEnabledCalendars(sync)).thenReturn(List.of(calendar));
+        when(syncStatusService.findByCode(anyString())).thenReturn(Optional.empty());
+
+        EventDto remoteEvent = EventDto.builder()
+                .externalId("g1")
+                .title("Remote Event")
                 .startTime(OffsetDateTime.now(ZoneOffset.UTC))
                 .endTime(OffsetDateTime.now(ZoneOffset.UTC).plusHours(1))
+                .externalUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC))
                 .source(EventSource.GOOGLE)
-                .isDeleted(false)
-                .version(1L)
+                .provider(ProviderType.GOOGLE)
                 .build();
 
-        when(eventRepository.findByUserAndProviderAndUpdatedAtAfter(eq(user), eq(ProviderType.GOOGLE), any()))
-                .thenReturn(List.of(internalChange, providerSourcedChange));
+        when(provider.fetchEventsWithToken(eq(sync), eq("primary"), isNull()))
+                .thenReturn(new ICalendarProvider.SyncFetchResult(List.of(remoteEvent), "nextToken"));
+        when(provider.fetchCalendars(sync)).thenReturn(List.of());
 
-        engine.sync("u@example.com", ProviderType.GOOGLE);
+        when(eventRepository.findByCuSyncCalendarAndCalendarEventReference(calendar, "g1"))
+                .thenReturn(Optional.empty());
 
-        verify(eventManagementService, times(1)).saveEvent(eq("u@example.com"), any(EventDto.class), eq(account));
-        verify(provider, times(1)).createEvent(eq(account), any(EventDto.class));
-        verify(provider, never()).updateEvent(eq(account), anyString(), any(EventDto.class));
+        CUSyncCalendarEventEntity savedEvent = CUSyncCalendarEventEntity.builder()
+                .cuSyncCalendar(calendar)
+                .calendarEventReference("g1")
+                .build();
+        when(eventRepository.save(any())).thenReturn(savedEvent);
+        when(customerUserSyncRepository.save(any())).thenReturn(sync);
+
+        SyncEngine.SyncResult result = engine.sync("u@example.com", ProviderType.GOOGLE);
+
+        assertEquals("SUCCESS", result.getStatus());
+        assertEquals(1, result.getFetchedRemoteCount());
+        verify(eventRepository, atLeastOnce()).save(any());
+        verify(providerCalendarService).updateSyncCursor(calendar);
     }
 }

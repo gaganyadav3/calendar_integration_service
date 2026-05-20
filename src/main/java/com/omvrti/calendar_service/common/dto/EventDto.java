@@ -49,10 +49,23 @@ public class EventDto {
     
     private List<AttendeeDto> attendees;
 
+    // Provider-specific fields for full sync fidelity
+    private String iCalUID;
+    private String recurringEventId;
+    private List<String> recurrenceRules;
+    private String conferenceData;
+    private String htmlLink;
+    private String eventType;
+    private Integer sequence;
+    private String etag;
+    private String transparency;
+    private String visibility;
+    private List<ReminderDto> reminders;
+
     public boolean isUpcoming() {
-        return endTime.isAfter(OffsetDateTime.now());
+        return endTime != null && endTime.isAfter(OffsetDateTime.now());
     }
-    
+
     public boolean isBooking() {
         return !isCancelled && isUpcoming();
     }
