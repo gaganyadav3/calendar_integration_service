@@ -40,14 +40,31 @@ public class MasterDataInitializationService {
         long evtStatus = eventStatusRepository.count();
         long guestResp = guestResponseRepository.count();
         long wbStatus  = webhookStatusRepository.count();
-        log.info("Master data counts — SYNC_VENDOR:{} SYNC_STATUS:{} CAL_EVENT_STATUS:{} GUEST_RESPONSE:{} WEBHOOK_STATUS:{}",
+        log.info("=== STARTUP MASTER DATA VALIDATION ===");
+        log.info("  SYNC_VENDOR:{}  SYNC_STATUS:{}  CAL_EVENT_STATUS:{}  GUEST_RESPONSE:{}  WEBHOOK_STATUS:{}",
                 vendors, statuses, evtStatus, guestResp, wbStatus);
-        if (statuses == 0) {
-            log.warn("SYNC_STATUS table is EMPTY — status lookups will fail. " +
-                     "Check Oracle schema for unmapped NOT NULL columns (e.g. STATUS_CODE) in SYNC_STATUS.");
-        }
+
+        if (vendors == 0)
+            log.warn("[STARTUP] SYNC_VENDOR is EMPTY — OAuth provider lookups will throw on first request.");
+        if (statuses == 0)
+            log.warn("[STARTUP] SYNC_STATUS is EMPTY — token saves will fail with IllegalStateException. " +
+                     "Check Oracle schema for unmapped NOT NULL columns in SYNC_STATUS.");
+        if (evtStatus == 0)
+            log.warn("[STARTUP] CALENDAR_EVENT_STATUS is EMPTY — event syncs will store null CALENDAR_EVENT_STATUS_ID " +
+                     "which may violate a NOT NULL DB constraint.");
+        if (guestResp == 0)
+            log.warn("[STARTUP] EVENT_GUEST_RESPONSE is EMPTY — attendee persistence will store null EVENT_GUEST_RESPONSE_ID.");
+        if (wbStatus == 0)
+            log.warn("[STARTUP] WEBHOOK_STATUS is EMPTY — webhook registration will fail.");
+
         syncStatusRepository.findAll().forEach(s ->
-                log.debug("  SYNC_STATUS row: id={} name={} isActive={}", s.getId(), s.getName(), s.getIsActive()));
+                log.debug("  SYNC_STATUS row: id={} name={} isConnected={} isActive={}",
+                        s.getId(), s.getName(), s.getIsConnected(), s.getIsActive()));
+        syncVendorRepository.findAll().forEach(v ->
+                log.debug("  SYNC_VENDOR row: id={} name={} displayName={}", v.getId(), v.getName(), v.getDisplayName()));
+        eventStatusRepository.findAll().forEach(es ->
+                log.debug("  CAL_EVENT_STATUS row: id={} name={} isCancelled={}", es.getId(), es.getName(), es.getIsCancelled()));
+        log.info("=== STARTUP VALIDATION COMPLETE ===");
     }
 
     // ── Sync vendors ──────────────────────────────────────────────────────────

@@ -36,8 +36,10 @@ public interface CustomerUserSyncRepository extends JpaRepository<CustomerUserSy
     boolean existsByCustomerUserAndSyncVendor(
             CustomerUserEntity customerUser, SyncVendorEntity syncVendor);
 
-    @Query("SELECT s FROM CustomerUserSyncEntity s WHERE s.customerUser = :user " +
-           "AND s.syncStatus IS NOT NULL AND s.syncStatus.isActive = 1")
+    @Query("SELECT s FROM CustomerUserSyncEntity s " +
+           "JOIN FETCH s.syncStatus " +
+           "JOIN FETCH s.syncVendor " +
+           "WHERE s.customerUser = :user AND s.syncStatus.isActive = 1")
     List<CustomerUserSyncEntity> findActiveByCustomerUser(@Param("user") CustomerUserEntity customerUser);
 
     @Query("SELECT s FROM CustomerUserSyncEntity s " +

@@ -167,11 +167,13 @@ public class WebhookManagementService {
     }
 
     public List<CUSyncCalendarWebhookEntity> getExpiredWebhooks() {
-        return webhookRepository.findAll().stream().filter(CUSyncCalendarWebhookEntity::isExpired).toList();
+        return webhookRepository.findAllEager().stream()
+                .filter(CUSyncCalendarWebhookEntity::isExpired).toList();
     }
 
     public List<CUSyncCalendarWebhookEntity> getWebhooksNeedingRenewal() {
-        return webhookRepository.findAll().stream().filter(CUSyncCalendarWebhookEntity::needsRenewal).toList();
+        return webhookRepository.findAllEager().stream()
+                .filter(CUSyncCalendarWebhookEntity::needsRenewal).toList();
     }
 
     @Transactional

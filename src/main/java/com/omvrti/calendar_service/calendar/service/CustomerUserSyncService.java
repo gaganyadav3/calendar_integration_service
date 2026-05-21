@@ -10,6 +10,7 @@ import com.omvrti.calendar_service.persistence.repository.CustomerUserRepository
 import com.omvrti.calendar_service.persistence.repository.CustomerUserSyncRepository;
 import com.omvrti.calendar_service.persistence.repository.SyncStatusRepository;
 import com.omvrti.calendar_service.persistence.service.SyncVendorService;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -32,27 +33,40 @@ public class CustomerUserSyncService {
 
     // ── User management ───────────────────────────────────────────────────────
 
-    @Transactional
-    public CustomerUserEntity getOrCreateCustomerUser(String email, String firstName, String lastName) {
-        log.debug("Getting or creating customer user: {}", email);
-        Optional<CustomerUserEntity> existing = customerUserRepository.findByEmail(email);
-        if (existing.isPresent()) {
-            return existing.get();
-        }
-        try {
-            CustomerUserEntity created = customerUserRepository.saveAndFlush(
-                    CustomerUserEntity.builder()
-                            .email(email)
-                            .firstName(firstName != null ? firstName : "")
-                            .build());
-            log.debug("Created new customer user: id={} email={}", created.getId(), email);
-            return created;
-        } catch (DataIntegrityViolationException e) {
-            // Concurrent request already created the user — fetch and return the existing row
-            return customerUserRepository.findByEmail(email)
-                    .orElseThrow(() -> new IllegalStateException("Failed to create/find user: " + email));
-        }
-    }
+//    @Transactional
+//    public CustomerUserEntity getOrCreateCustomerUser(String email, String firstName, String lastName) {
+//        log.debug("Getting or creating customer user: {}", email);
+//        Optional<CustomerUserEntity> existing = customerUserRepository.findByEmail(email);
+//        if (existing.isPresent()) {
+//            return existing.get();
+//        }
+//        try {
+//            // Insert with customerId=0 to satisfy the Oracle NOT NULL constraint,
+//            // then update it to match the generated ID (customer == user in this service).
+//            CustomerUserEntity created = customerUserRepository.saveAndFlush(
+//                    CustomerUserEntity.builder()
+//                            .email(email)
+//                            .firstName(firstName != null ? firstName : "")
+//                            .customerId(0L)
+//                            .build());
+//            created.setCustomerId(created.getId());
+//            created = customerUserRepository.saveAndFlush(created);
+//            log.debug("Created new customer user: id={} email={}", created.getId(), email);
+//            return created;
+//        } catch (DataIntegrityViolationException e) {
+//            // Concurrent request already created the user — fetch and return the existing row
+//            return customerUserRepository.findByEmail(email)
+//                    .orElseThrow(() -> new IllegalStateException("Failed to create/find user: " + email));
+//        }
+//    }
+@Transactional(readOnly = true)
+public CustomerUserEntity getCustomerUser(String email) {
+    log.debug("Fetching customer user: {}", email);
+
+    return customerUserRepository.findByEmail(email)
+            .orElseThrow(() -> new EntityNotFoundException(
+                    "Customer user not found with email: " + email));
+}
 
     // ── Sync management ───────────────────────────────────────────────────────
 
@@ -159,6 +173,7 @@ public class CustomerUserSyncService {
                 .orElse(false);
     }
 
+    @Transactional(readOnly = true)
     public List<CustomerUserSyncEntity> getActiveSyncs(CustomerUserEntity customerUser) {
         return customerUserSyncRepository.findByCustomerUserAndIsActiveTrue(customerUser);
     }

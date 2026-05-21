@@ -76,9 +76,7 @@ public class EventMergePersistenceService {
     }
 
     private void markCancelled(CUSyncCalendarEventEntity event) {
-        calendarEventStatusRepository.findAll().stream()
-                .filter(s -> Integer.valueOf(1).equals(s.getIsCancelled()))
-                .findFirst()
+        calendarEventStatusRepository.findFirstByIsCancelledOrderByIdAsc(1)
                 .ifPresentOrElse(
                         event::setCalendarEventStatus,
                         () -> log.warn("No CANCELLED CalendarEventStatus found in DB — run master data init"));

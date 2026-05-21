@@ -8,11 +8,14 @@ import com.omvrti.calendar_service.oauth.factory.OAuthProviderFactory;
 import com.omvrti.calendar_service.oauth.provider.IOAuthProvider;
 import com.omvrti.calendar_service.oauth.service.TokenRefreshService;
 import com.omvrti.calendar_service.persistence.entity.CustomerUserEntity;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -33,12 +36,16 @@ public class OAuthController {
     @GetMapping("/authorize")
     public ResponseEntity<?> getAuthorizationUrl(
             @RequestParam String provider,
-            @RequestParam(required = false) String redirectUri) {
+            @RequestParam(required = false) String redirectUri,
+            @RequestHeader(value = "X-USER-EMAIL", required = false) String userEmail) {
         log.info("Requesting authorization URL for provider: {}", provider);
         try {
             ProviderType providerType = ProviderType.parse(provider);
             IOAuthProvider oauthProvider = providerFactory.getProvider(providerType);
-            String state = UUID.randomUUID().toString();
+            String csrf = UUID.randomUUID().toString();
+            String state = (userEmail != null && !userEmail.isBlank())
+                    ? csrf + ":" + Base64.getEncoder().encodeToString(userEmail.trim().getBytes(StandardCharsets.UTF_8))
+                    : csrf;
             String authUrl = oauthProvider.getAuthorizationUrl(state, redirectUri, getDefaultScopes(providerType));
             Map<String, String> response = new HashMap<>();
             response.put("authorizationUrl", authUrl);
@@ -111,8 +118,21 @@ public class OAuthController {
             String redirectUri = "https://kebab-recast-shrill.ngrok-free.dev/api/oauth/callback/"
                     + provider.toLowerCase();
             OAuthTokenDto tokenDto = oauthProvider.exchangeCodeForToken(code, redirectUri);
-            String userEmail = oauthProvider.getUserEmail(tokenDto);
-            persistOAuthTokens(userEmail, providerType, tokenDto);
+
+            String internalEmail = decodeEmailFromState(state);
+            String userEmail = (internalEmail != null) ? internalEmail : oauthProvider.getUserEmail(tokenDto);
+            log.info("OAuth callback: resolved userEmail={} (from {})", userEmail,
+                    internalEmail != null ? "state" : "provider");
+
+            try {
+                persistOAuthTokens(userEmail, providerType, tokenDto);
+            } catch (EntityNotFoundException e) {
+                log.warn("OAuth callback: no CUSTOMER_USER row for email '{}'. " +
+                         "Call /api/oauth/authorize with X-USER-EMAIL set to the registered email.", userEmail);
+                return ResponseEntity.badRequest().body(htmlError("User not found",
+                        "No account found for <b>" + escape(userEmail) + "</b>. " +
+                        "Retry the OAuth flow with the <code>X-USER-EMAIL</code> header set to your registered email address."));
+            }
 
             log.info("OAuth callback success for {} - {}", userEmail, providerType);
             return ResponseEntity.ok("""
@@ -182,7 +202,7 @@ public class OAuthController {
 
     private void persistOAuthTokens(String userEmail, ProviderType providerType, OAuthTokenDto tokenDto) {
         CustomerUserEntity customerUser =
-                accountManagementService.getOrCreateCustomerUser(userEmail, null, null);
+                accountManagementService.getCustomerUser(userEmail, null, null);
         customerUserSyncService.saveTokens(customerUser, providerType, userEmail, null, tokenDto);
         log.info("OAuth tokens persisted for {} - {}", userEmail, providerType);
     }
@@ -209,6 +229,16 @@ public class OAuthController {
 
     private static String htmlError(String title, String detail) {
         return "<html><body><h3>" + title + "</h3><p>" + detail + "</p></body></html>";
+    }
+
+    private static String decodeEmailFromState(String state) {
+        if (state == null || !state.contains(":")) return null;
+        try {
+            String encoded = state.split(":", 2)[1];
+            return new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static String escape(String in) {

@@ -34,4 +34,17 @@ public interface CUSyncCalendarWebhookRepository extends JpaRepository<CUSyncCal
                 .map(List::of)
                 .orElse(List.of());
     }
+
+    /**
+     * Loads all webhooks with their full calendar + sync chain eagerly.
+     * Used by the scheduler so that getCuSyncCalendar() / getCustomerUserSync() / getSyncVendor()
+     * are safe to access after the Hibernate session closes (entities are detached but initialized).
+     */
+    @Query("SELECT w FROM CUSyncCalendarWebhookEntity w " +
+           "JOIN FETCH w.cuSyncCalendar c " +
+           "JOIN FETCH c.customerUserSync s " +
+           "JOIN FETCH s.syncVendor " +
+           "JOIN FETCH s.syncStatus " +
+           "LEFT JOIN FETCH w.webhookStatus")
+    List<CUSyncCalendarWebhookEntity> findAllEager();
 }

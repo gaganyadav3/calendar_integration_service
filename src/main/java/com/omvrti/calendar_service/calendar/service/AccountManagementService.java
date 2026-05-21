@@ -21,11 +21,12 @@ public class AccountManagementService {
     private final CustomerUserRepository customerUserRepository;
     private final CustomerUserSyncService customerUserSyncService;
 
-    public CustomerUserEntity getOrCreateCustomerUser(String email, String firstName, String lastName) {
+    public CustomerUserEntity getCustomerUser(String email, String firstName, String lastName) {
         log.debug("Getting or creating customer user: {}", email);
-        return customerUserSyncService.getOrCreateCustomerUser(email, firstName, lastName);
+        return customerUserSyncService.getCustomerUser(email);
     }
 
+    @Transactional(readOnly = true)
     public List<ConnectedAccountDto> getConnectedAccounts(String userEmail) {
         log.debug("Fetching connected accounts for: {}", userEmail);
         CustomerUserEntity customerUser = customerUserRepository.findByEmail(userEmail)
@@ -35,12 +36,14 @@ public class AccountManagementService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public boolean isProviderConnected(String userEmail, ProviderType provider) {
         return customerUserRepository.findByEmail(userEmail)
                 .map(user -> customerUserSyncService.isProviderConnected(user, provider))
                 .orElse(false);
     }
 
+    @Transactional(readOnly = true)
     public ConnectedAccountDto getConnectedAccount(String userEmail, ProviderType provider) {
         CustomerUserEntity customerUser = customerUserRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new IllegalArgumentException("Customer user not found: " + userEmail));

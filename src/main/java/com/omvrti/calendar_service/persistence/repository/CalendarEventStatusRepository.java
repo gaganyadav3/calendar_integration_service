@@ -20,4 +20,7 @@ public interface CalendarEventStatusRepository extends JpaRepository<CalendarEve
     default Optional<CalendarEventStatusEntity> findByEventStatusCode(String eventStatusCode) {
         return findFirstByNameOrderByIdAsc(eventStatusCode);
     }
+
+    /** Direct query for the CANCELLED status — avoids loading the full table in markCancelled(). */
+    Optional<CalendarEventStatusEntity> findFirstByIsCancelledOrderByIdAsc(Integer isCancelled);
 }
