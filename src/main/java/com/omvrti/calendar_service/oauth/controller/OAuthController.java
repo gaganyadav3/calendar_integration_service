@@ -37,14 +37,20 @@ public class OAuthController {
     public ResponseEntity<?> getAuthorizationUrl(
             @RequestParam String provider,
             @RequestParam(required = false) String redirectUri,
-            @RequestHeader(value = "X-USER-EMAIL", required = false) String userEmail) {
-        log.info("Requesting authorization URL for provider: {}", provider);
+            @RequestHeader(value = "X-USER-EMAIL", required = false) String internalEmail) {
+        log.info("OAuth authorize: internalEmail={}", internalEmail);
+        if (internalEmail == null || internalEmail.isBlank()) {
+            log.warn("OAuth authorize: X-USER-EMAIL header is missing — callback cannot resolve CUSTOMER_USER by internal email; " +
+                     "add X-USER-EMAIL header to avoid EntityNotFoundException on callback");
+        }
         try {
             ProviderType providerType = ProviderType.parse(provider);
             IOAuthProvider oauthProvider = providerFactory.getProvider(providerType);
             String csrf = UUID.randomUUID().toString();
-            String state = (userEmail != null && !userEmail.isBlank())
-                    ? csrf + ":" + Base64.getEncoder().encodeToString(userEmail.trim().getBytes(StandardCharsets.UTF_8))
+            // URL-safe Base64 (no padding): avoids '+' → space corruption in OAuth redirect query params
+            String state = (internalEmail != null && !internalEmail.isBlank())
+                    ? csrf + ":" + Base64.getUrlEncoder().withoutPadding()
+                            .encodeToString(internalEmail.trim().getBytes(StandardCharsets.UTF_8))
                     : csrf;
             String authUrl = oauthProvider.getAuthorizationUrl(state, redirectUri, getDefaultScopes(providerType));
             Map<String, String> response = new HashMap<>();
@@ -66,21 +72,20 @@ public class OAuthController {
         String code = request.get("code");
         String provider = request.get("provider");
         String redirectUri = request.get("redirectUri");
-        String userEmail = request.get("userEmail");
+        String internalEmail = request.get("userEmail");
 
-        log.info("Exchanging code for token - provider: {}, userEmail: {}", provider, userEmail);
+        log.info("Exchanging code for token - provider: {}, internalEmail: {}", provider, internalEmail);
         try {
             ProviderType providerType = ProviderType.parse(provider);
             IOAuthProvider oauthProvider = providerFactory.getProvider(providerType);
             OAuthTokenDto tokenDto = oauthProvider.exchangeCodeForToken(code, redirectUri);
-            if (userEmail == null || userEmail.isBlank()) {
-                userEmail = oauthProvider.getUserEmail(tokenDto);
-            }
-            persistOAuthTokens(userEmail, providerType, tokenDto);
+            String providerEmail = oauthProvider.getUserEmail(tokenDto);
+            String lookupEmail = (internalEmail != null && !internalEmail.isBlank()) ? internalEmail : providerEmail;
+            persistOAuthTokens(lookupEmail, providerEmail, providerType, tokenDto);
 
             Map<String, String> response = new HashMap<>();
             response.put("success", "true");
-            response.put("userEmail", userEmail);
+            response.put("userEmail", lookupEmail);
             response.put("accessToken", tokenDto.getAccessToken());
             response.put("message", "Token exchanged and saved successfully");
             return ResponseEntity.ok(response);
@@ -119,22 +124,32 @@ public class OAuthController {
                     + provider.toLowerCase();
             OAuthTokenDto tokenDto = oauthProvider.exchangeCodeForToken(code, redirectUri);
 
+            // Provider email — used only for syncEmail / display, NOT for CUSTOMER_USER lookup
+            String providerEmail = oauthProvider.getUserEmail(tokenDto);
+
+            // Internal email from state — always use this for CUSTOMER_USER lookup
             String internalEmail = decodeEmailFromState(state);
-            String userEmail = (internalEmail != null) ? internalEmail : oauthProvider.getUserEmail(tokenDto);
-            log.info("OAuth callback: resolved userEmail={} (from {})", userEmail,
-                    internalEmail != null ? "state" : "provider");
+            if (internalEmail != null) {
+                log.info("OAuth callback: decoded internalEmail={}", internalEmail);
+            } else {
+                log.warn("OAuth callback: missing internal email in state — " +
+                         "call /api/oauth/authorize with X-USER-EMAIL header to fix this");
+            }
+            String lookupEmail = (internalEmail != null) ? internalEmail : providerEmail;
+            log.info("OAuth callback: resolved lookupEmail={} (from {}), providerEmail={}",
+                    lookupEmail, internalEmail != null ? "state" : "provider", providerEmail);
 
             try {
-                persistOAuthTokens(userEmail, providerType, tokenDto);
+                persistOAuthTokens(lookupEmail, providerEmail, providerType, tokenDto);
             } catch (EntityNotFoundException e) {
                 log.warn("OAuth callback: no CUSTOMER_USER row for email '{}'. " +
-                         "Call /api/oauth/authorize with X-USER-EMAIL set to the registered email.", userEmail);
+                         "Ensure X-USER-EMAIL is the exact email stored in CUSTOMER_USER table.", lookupEmail);
                 return ResponseEntity.badRequest().body(htmlError("User not found",
-                        "No account found for <b>" + escape(userEmail) + "</b>. " +
+                        "No account found for <b>" + escape(lookupEmail) + "</b>. " +
                         "Retry the OAuth flow with the <code>X-USER-EMAIL</code> header set to your registered email address."));
             }
 
-            log.info("OAuth callback success for {} - {}", userEmail, providerType);
+            log.info("OAuth callback success for {} - {}", lookupEmail, providerType);
             return ResponseEntity.ok("""
                 <html>
                   <body>
@@ -142,7 +157,7 @@ public class OAuthController {
                     <h3>Connected successfully. You can close this window.</h3>
                   </body>
                 </html>
-                """.formatted(providerType, userEmail));
+                """.formatted(providerType, lookupEmail));
         } catch (Exception e) {
             log.error("OAuth callback failed for provider {}", provider, e);
             return ResponseEntity.internalServerError()
@@ -200,11 +215,17 @@ public class OAuthController {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private void persistOAuthTokens(String userEmail, ProviderType providerType, OAuthTokenDto tokenDto) {
+    /**
+     * @param internalEmail email from CUSTOMER_USER table — used for DB lookup only
+     * @param syncEmail     email from the OAuth provider account — stored as sync reference
+     */
+    private void persistOAuthTokens(String internalEmail, String syncEmail,
+                                    ProviderType providerType, OAuthTokenDto tokenDto) {
         CustomerUserEntity customerUser =
-                accountManagementService.getCustomerUser(userEmail, null, null);
-        customerUserSyncService.saveTokens(customerUser, providerType, userEmail, null, tokenDto);
-        log.info("OAuth tokens persisted for {} - {}", userEmail, providerType);
+                accountManagementService.getCustomerUser(internalEmail, null, null);
+        customerUserSyncService.saveTokens(customerUser, providerType, syncEmail, null, tokenDto);
+        log.info("OAuth tokens persisted for internalEmail={} syncEmail={} provider={}",
+                internalEmail, syncEmail, providerType);
     }
 
     private String[] getDefaultScopes(ProviderType provider) {
@@ -231,12 +252,21 @@ public class OAuthController {
         return "<html><body><h3>" + title + "</h3><p>" + detail + "</p></body></html>";
     }
 
+    /**
+     * Decodes the internal email encoded into the OAuth state parameter.
+     * State format: {@code <csrfToken>:<urlSafeBase64Email>}
+     * Returns null if state is missing, has no email segment, or Base64 is malformed.
+     */
     private static String decodeEmailFromState(String state) {
         if (state == null || !state.contains(":")) return null;
         try {
             String encoded = state.split(":", 2)[1];
-            return new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8);
+            if (encoded.isBlank()) return null;
+            String decoded = new String(Base64.getUrlDecoder().decode(encoded), StandardCharsets.UTF_8);
+            if (decoded.isBlank()) return null;
+            return decoded;
         } catch (Exception e) {
+            log.warn("OAuth state decode failed — malformed Base64 in state: {}", e.getMessage());
             return null;
         }
     }
