@@ -226,10 +226,20 @@ public class OutlookOAuthProvider implements IOAuthProvider {
         }
     }
 
-    // ✅ Helper method (clean code)
     private OAuthTokenDto buildTokenDto(JsonNode jsonNode) {
+        JsonNode accessTokenNode = jsonNode.get("access_token");
+        if (accessTokenNode == null || accessTokenNode.isNull()) {
+            log.error("Outlook token response missing access_token field. Response keys: {}", jsonNode.fieldNames());
+            throw new OAuthException("TOKEN_MISSING",
+                    "access_token not present in Outlook token response", "OUTLOOK");
+        }
+        String accessToken = accessTokenNode.asText();
+        if (accessToken.isBlank() || "null".equals(accessToken)) {
+            throw new OAuthException("TOKEN_INVALID",
+                    "access_token is blank in Outlook token response", "OUTLOOK");
+        }
         return OAuthTokenDto.builder()
-                .accessToken(jsonNode.get("access_token").asText())
+                .accessToken(accessToken)
                 .refreshToken(jsonNode.has("refresh_token") ? jsonNode.get("refresh_token").asText() : null)
                 .idToken(jsonNode.has("id_token") ? jsonNode.get("id_token").asText() : null)
                 .expiresIn(jsonNode.get("expires_in").asLong())

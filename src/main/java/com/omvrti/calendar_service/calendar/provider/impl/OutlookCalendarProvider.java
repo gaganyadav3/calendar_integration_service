@@ -131,7 +131,7 @@ public class OutlookCalendarProvider implements ICalendarProvider {
                 startUrl = GRAPH + resource
                         + "?$select=id,subject,bodyPreview,body,location,organizer,start,end,isAllDay,isCancelled"
                         + ",lastModifiedDateTime,createdDateTime,attendees,recurrence,onlineMeeting,webLink"
-                        + ",importance,sensitivity,responseStatus&$top=100";
+                        + ",importance,sensitivity,responseStatus";
             }
 
             List<EventDto> all = new ArrayList<>();
@@ -450,8 +450,21 @@ public class OutlookCalendarProvider implements ICalendarProvider {
     }
 
     private ResponseEntity<String> get(String url, String accessToken) {
-        return restTemplate.exchange(url, HttpMethod.GET,
-                new HttpEntity<>(headers(accessToken)), String.class);
+
+        HttpHeaders headers = new HttpHeaders();
+
+        headers.setBearerAuth(accessToken);
+
+        headers.add("Prefer", "odata.maxpagesize=100");
+
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+        return restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                entity,
+                String.class
+        );
     }
 
     private HttpEntity<String> entity(String body, String accessToken) {

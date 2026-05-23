@@ -6,6 +6,7 @@ import com.omvrti.calendar_service.common.dto.EventDto;
 import com.omvrti.calendar_service.common.enums.ProviderType;
 import com.omvrti.calendar_service.common.exception.CalendarException;
 import com.omvrti.calendar_service.common.exception.SyncException;
+import com.omvrti.calendar_service.oauth.service.TokenRefreshService;
 import com.omvrti.calendar_service.persistence.entity.*;
 import com.omvrti.calendar_service.persistence.repository.CustomerUserRepository;
 import com.omvrti.calendar_service.persistence.repository.CustomerUserSyncRepository;
@@ -32,6 +33,7 @@ public class SyncEngine {
     private final SyncVendorService syncVendorService;
     private final SyncStatusPersistenceService syncStatusPersistenceService;
     private final EventMergePersistenceService eventMergePersistenceService;
+    private final TokenRefreshService tokenRefreshService;
     private final Map<ProviderType, ICalendarProvider> calendarProviders;
 
     // ── Entry point ───────────────────────────────────────────────────────────
@@ -77,6 +79,15 @@ public class SyncEngine {
         syncStatusPersistenceService.markInProgress(sync.getId());
 
         try {
+            // Refresh token if expired before making any provider API calls
+            try {
+                String validToken = tokenRefreshService.getValidAccessToken(sync, provider);
+                sync.setAccessToken(validToken);
+            } catch (Exception e) {
+                syncStatusPersistenceService.markFailed(sync.getId(), "Token refresh failed: " + e.getMessage());
+                throw new SyncException("AUTH_FAILED", "Token refresh failed for " + userEmail + ": " + e.getMessage(), e);
+            }
+
             fetchAndSaveCalendars(sync, calendarProvider);
 
             List<CUSyncCalendarEntity> enabledCalendars =
@@ -195,7 +206,7 @@ public class SyncEngine {
         try {
             boolean merged = eventMergePersistenceService.mergeEvent(calendarId, dto);
             result.setFetchedRemoteCount(result.getFetchedRemoteCount() + 1);
-            log.debug("{} event {}", merged ? "Saved" : "Cancelled/Skipped", dto.getExternalId());
+            //log.debug("{} event {}", merged ? "Saved" : "Cancelled/Skipped", dto.getExternalId());
         } catch (Exception e) {
             log.warn("Failed to merge event {} for calendar {}: {}",
                     dto.getExternalId(), calendarId, e.getMessage(), e);

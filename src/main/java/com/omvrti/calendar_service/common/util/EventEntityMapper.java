@@ -6,9 +6,11 @@ import com.omvrti.calendar_service.common.dto.ReminderDto;
 import com.omvrti.calendar_service.persistence.entity.CalendarEventStatusEntity;
 import com.omvrti.calendar_service.persistence.entity.CUSyncCalendarEventEntity;
 import com.omvrti.calendar_service.persistence.entity.CUSyncCalendarEventGuestEntity;
+import com.omvrti.calendar_service.persistence.entity.EventGuestResponseEntity;
 import com.omvrti.calendar_service.persistence.entity.EventReminderEntity;
 import com.omvrti.calendar_service.persistence.repository.CalendarEventStatusRepository;
 import com.omvrti.calendar_service.persistence.repository.CUSyncCalendarEventGuestRepository;
+import com.omvrti.calendar_service.persistence.repository.EventGuestResponseRepository;
 import com.omvrti.calendar_service.persistence.repository.EventReminderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,10 +30,14 @@ public class EventEntityMapper {
     private final CUSyncCalendarEventGuestRepository guestRepository;
     private final EventReminderRepository reminderRepository;
     private final CalendarEventStatusRepository calendarEventStatusRepository;
+    private final EventGuestResponseRepository eventGuestResponseRepository;
     private final JdbcTemplate jdbcTemplate;
 
     /** Cache: "CONFIRMED" / "CANCELLED" → entity. Static master data, safe to cache for app lifetime. */
     private final Map<String, CalendarEventStatusEntity> statusCache = new ConcurrentHashMap<>();
+
+    /** Cache: "ACCEPTED" / "DECLINED" / "TENTATIVE" / "NEEDS_ACTION" → entity. */
+    private final Map<String, EventGuestResponseEntity> guestResponseCache = new ConcurrentHashMap<>();
 
     /** Cached minimum airport ID — AIRPORT_ID is NOT NULL in Oracle; loaded on first event insert. */
     private volatile Integer defaultAirportId;
@@ -63,6 +69,22 @@ public class EventEntityMapper {
         String key = cancelled ? "CANCELLED" : "CONFIRMED";
         return statusCache.computeIfAbsent(key,
                 k -> calendarEventStatusRepository.findByEventStatusCode(k).orElse(null));
+    }
+
+    private EventGuestResponseEntity resolveGuestResponse(String status) {
+        String key = mapToGuestResponseName(status);
+        return guestResponseCache.computeIfAbsent(key,
+                k -> eventGuestResponseRepository.findByName(k).orElse(null));
+    }
+
+    private static String mapToGuestResponseName(String status) {
+        if (status == null) return "NEEDS_ACTION";
+        return switch (status.toUpperCase()) {
+            case "ACCEPTED" -> "ACCEPTED";
+            case "DECLINED" -> "DECLINED";
+            case "TENTATIVE" -> "TENTATIVE";
+            default -> "NEEDS_ACTION";
+        };
     }
 
     /**
@@ -145,11 +167,11 @@ public class EventEntityMapper {
         // Resolve MEETING_MODE — Oracle constraint: MEETING_MODE >= 1; never store raw provider strings or 0
         e.setMeetingMode(normalizeMeetingMode(dto));
 
-        log.debug("Mapping event: externalId={}, meetingMode={}, cancelled={}, statusId={}",
-                dto.getExternalId(),
-                e.getMeetingMode(),
-                dto.isCancelled(),
-                e.getCalendarEventStatus() != null ? e.getCalendarEventStatus().getId() : "null");
+//        log.debug("Mapping event: externalId={}, meetingMode={}, cancelled={}, statusId={}",
+//                dto.getExternalId(),
+//                e.getMeetingMode(),
+//                dto.isCancelled(),
+//                e.getCalendarEventStatus() != null ? e.getCalendarEventStatus().getId() : "null");
     }
 
     // ── Entity → DTO ──────────────────────────────────────────────────────────
@@ -187,16 +209,26 @@ public class EventEntityMapper {
     public void syncGuests(CUSyncCalendarEventEntity event, List<AttendeeDto> attendees) {
         if (attendees == null) return;
         List<CUSyncCalendarEventGuestEntity> existing = guestRepository.findByCuSyncCalendarEvent(event);
-        if (!existing.isEmpty()) guestRepository.deleteAll(existing);
+        if (!existing.isEmpty()) {
+            guestRepository.deleteAll(existing);
+            guestRepository.flush(); // force DELETEs to DB before INSERTs to avoid UK1 violation
+        }
 
         for (AttendeeDto a : attendees) {
             if (a.getEmail() == null) continue;
+            EventGuestResponseEntity guestResponse = resolveGuestResponse(a.getStatus());
+            if (guestResponse == null) {
+                log.warn("EventGuestResponse '{}' not found in DB — skipping guest {}. Run master data init.",
+                        mapToGuestResponseName(a.getStatus()), a.getEmail());
+                continue;
+            }
             boolean isOrganizer = a.getEmail().equalsIgnoreCase(event.getOrganizerEmail());
             CUSyncCalendarEventGuestEntity guest = CUSyncCalendarEventGuestEntity.builder()
                     .cuSyncCalendarEvent(event)
                     .guestEmail(a.getEmail())
                     .guestName(a.getName())
                     .responseStatus(a.getStatus())
+                    .guestResponse(guestResponse)
                     .isOrganizer(isOrganizer ? 1 : 0)
                     .isOptional(0)
                     .isHuman(1)
