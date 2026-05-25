@@ -18,8 +18,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
@@ -240,11 +242,15 @@ public class EventEntityMapper {
     public void syncReminders(CUSyncCalendarEventEntity event, List<ReminderDto> reminders) {
         if (reminders == null) return;
         reminderRepository.deleteByCuSyncCalendarEvent(event);
+        reminderRepository.flush(); // force DELETEs to DB before INSERTs to avoid EVENT_REMINDER_UK1 violation
+        Set<Integer> seen = new HashSet<>();
         for (ReminderDto r : reminders) {
+            int timeValue = r.getMinutes() > 0 ? r.getMinutes() : 10;
+            if (!seen.add(timeValue)) continue; // skip duplicate timeValues from provider
             EventReminderEntity reminder = EventReminderEntity.builder()
                     .cuSyncCalendarEvent(event)
                     .notificationMedium(1)
-                    .timeValue(r.getMinutes() > 0 ? r.getMinutes() : 10)
+                    .timeValue(timeValue)
                     .timeUnitId(1)
                     .build();
             reminderRepository.save(reminder);

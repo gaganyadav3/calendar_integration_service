@@ -24,6 +24,10 @@ public interface CUSyncCalendarRepository extends JpaRepository<CUSyncCalendarEn
     @Query("SELECT c FROM CUSyncCalendarEntity c WHERE c.customerUserSync = :sync AND c.isPrimary = 1")
     List<CUSyncCalendarEntity> findPrimaryByCustomerUserSync(@Param("sync") CustomerUserSyncEntity sync);
 
+    /** Total calendar count for a sync — used by the vendor status API. */
+    @Query("SELECT COUNT(c) FROM CUSyncCalendarEntity c WHERE c.customerUserSync = :sync")
+    long countByCustomerUserSync(@Param("sync") CustomerUserSyncEntity sync);
+
     /** Backward-compat alias for IS_ENABLED=1 (was IS_SYNC_ON). */
     default List<CUSyncCalendarEntity> findByCustomerUserSyncAndIsSyncOnTrue(CustomerUserSyncEntity sync) {
         return findEnabledByCustomerUserSync(sync);

@@ -23,7 +23,7 @@ public class AccountManagementService {
 
     public CustomerUserEntity getCustomerUser(String email, String firstName, String lastName) {
         log.debug("Getting or creating customer user: {}", email);
-        return customerUserSyncService.getCustomerUser(email);
+        return customerUserSyncService.getOrCreateCustomerUser(email);
     }
 
     @Transactional(readOnly = true)

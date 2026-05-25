@@ -2,6 +2,7 @@ package com.omvrti.calendar_service.persistence.repository;
 
 import com.omvrti.calendar_service.persistence.entity.CUSyncCalendarEntity;
 import com.omvrti.calendar_service.persistence.entity.CUSyncCalendarWebhookEntity;
+import com.omvrti.calendar_service.persistence.entity.CustomerUserSyncEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -47,4 +48,13 @@ public interface CUSyncCalendarWebhookRepository extends JpaRepository<CUSyncCal
            "JOIN FETCH s.syncStatus " +
            "LEFT JOIN FETCH w.webhookStatus")
     List<CUSyncCalendarWebhookEntity> findAllEager();
+
+    /**
+     * Count active webhooks (WEBHOOK_STATUS.IS_ACTIVE=1) across all calendars
+     * belonging to the given sync — used by the vendor status API.
+     */
+    @Query("SELECT COUNT(w) FROM CUSyncCalendarWebhookEntity w " +
+           "WHERE w.cuSyncCalendar.customerUserSync = :sync " +
+           "AND w.webhookStatus IS NOT NULL AND w.webhookStatus.isActive = 1")
+    long countActiveWebhooksBySync(@Param("sync") CustomerUserSyncEntity sync);
 }

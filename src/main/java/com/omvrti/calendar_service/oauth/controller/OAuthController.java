@@ -8,7 +8,6 @@ import com.omvrti.calendar_service.oauth.factory.OAuthProviderFactory;
 import com.omvrti.calendar_service.oauth.provider.IOAuthProvider;
 import com.omvrti.calendar_service.oauth.service.TokenRefreshService;
 import com.omvrti.calendar_service.persistence.entity.CustomerUserEntity;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -139,15 +138,7 @@ public class OAuthController {
             log.info("OAuth callback: resolved lookupEmail={} (from {}), providerEmail={}",
                     lookupEmail, internalEmail != null ? "state" : "provider", providerEmail);
 
-            try {
-                persistOAuthTokens(lookupEmail, providerEmail, providerType, tokenDto);
-            } catch (EntityNotFoundException e) {
-                log.warn("OAuth callback: no CUSTOMER_USER row for email '{}'. " +
-                         "Ensure X-USER-EMAIL is the exact email stored in CUSTOMER_USER table.", lookupEmail);
-                return ResponseEntity.badRequest().body(htmlError("User not found",
-                        "No account found for <b>" + escape(lookupEmail) + "</b>. " +
-                        "Retry the OAuth flow with the <code>X-USER-EMAIL</code> header set to your registered email address."));
-            }
+            persistOAuthTokens(lookupEmail, providerEmail, providerType, tokenDto);
 
             log.info("OAuth callback success for {} - {}", lookupEmail, providerType);
             return ResponseEntity.ok("""

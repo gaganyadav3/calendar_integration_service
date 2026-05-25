@@ -57,6 +57,7 @@ public class CalendarService {
         return remote.stream().map(CalendarService::toLegacyDto).collect(Collectors.toList());
     }
 
+
     // ── Create event ──────────────────────────────────────────────────────────
 
     @Transactional

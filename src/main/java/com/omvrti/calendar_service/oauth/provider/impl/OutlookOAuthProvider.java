@@ -102,8 +102,8 @@ public class OutlookOAuthProvider implements IOAuthProvider {
             HttpEntity<MultiValueMap<String, String>> request =
                     new HttpEntity<>(requestBody, headers);
 
-            log.debug("Token exchange request: client_id={}, code={}, redirect_uri={}, grant_type={}",
-                    clientId, code, redirectUri != null ? redirectUri : this.redirectUri, "authorization_code");
+//            log.debug("Token exchange request: client_id={}, code={}, redirect_uri={}, grant_type={}",
+//                    clientId, code, redirectUri != null ? redirectUri : this.redirectUri, "authorization_code");
 
             ResponseEntity<String> response =
                     restTemplate.postForEntity(TOKEN_ENDPOINT, request, String.class);

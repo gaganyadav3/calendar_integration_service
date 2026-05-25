@@ -33,40 +33,41 @@ public class CustomerUserSyncService {
 
     // ── User management ───────────────────────────────────────────────────────
 
-//    @Transactional
-//    public CustomerUserEntity getOrCreateCustomerUser(String email, String firstName, String lastName) {
-//        log.debug("Getting or creating customer user: {}", email);
-//        Optional<CustomerUserEntity> existing = customerUserRepository.findByEmail(email);
-//        if (existing.isPresent()) {
-//            return existing.get();
-//        }
-//        try {
-//            // Insert with customerId=0 to satisfy the Oracle NOT NULL constraint,
-//            // then update it to match the generated ID (customer == user in this service).
-//            CustomerUserEntity created = customerUserRepository.saveAndFlush(
-//                    CustomerUserEntity.builder()
-//                            .email(email)
-//                            .firstName(firstName != null ? firstName : "")
-//                            .customerId(0L)
-//                            .build());
-//            created.setCustomerId(created.getId());
-//            created = customerUserRepository.saveAndFlush(created);
-//            log.debug("Created new customer user: id={} email={}", created.getId(), email);
-//            return created;
-//        } catch (DataIntegrityViolationException e) {
-//            // Concurrent request already created the user — fetch and return the existing row
-//            return customerUserRepository.findByEmail(email)
-//                    .orElseThrow(() -> new IllegalStateException("Failed to create/find user: " + email));
-//        }
-//    }
-@Transactional(readOnly = true)
-public CustomerUserEntity getCustomerUser(String email) {
-    log.debug("Fetching customer user: {}", email);
+    @Transactional
+    public CustomerUserEntity getOrCreateCustomerUser(String email) {
+        log.debug("Getting or creating customer user: {}", email);
+        Optional<CustomerUserEntity> existing = customerUserRepository.findByEmail(email);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        log.info("No CUSTOMER_USER row with EMAIL='{}' — creating one now", email);
+        try {
+            // Insert with customerId=0 to satisfy the Oracle NOT NULL constraint,
+            // then update it to match the generated ID (customer == user in this service).
+            CustomerUserEntity created = customerUserRepository.saveAndFlush(
+                    CustomerUserEntity.builder()
+                            .email(email)
+                            .firstName("")
+                            .customerId(0L)
+                            .build());
+            created.setCustomerId(created.getId());
+            created = customerUserRepository.saveAndFlush(created);
+            log.info("Created new CUSTOMER_USER: id={} email={}", created.getId(), email);
+            return created;
+        } catch (DataIntegrityViolationException e) {
+            // Concurrent request already created the user — fetch and return the existing row
+            return customerUserRepository.findByEmail(email)
+                    .orElseThrow(() -> new IllegalStateException("Failed to create/find user: " + email));
+        }
+    }
 
-    return customerUserRepository.findByEmail(email)
-            .orElseThrow(() -> new EntityNotFoundException(
-                    "Customer user not found with email: " + email));
-}
+    @Transactional(readOnly = true)
+    public CustomerUserEntity getCustomerUser(String email) {
+        log.debug("Fetching customer user: {}", email);
+        return customerUserRepository.findByEmail(email)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Customer user not found with email: " + email));
+    }
 
     // ── Sync management ───────────────────────────────────────────────────────
 

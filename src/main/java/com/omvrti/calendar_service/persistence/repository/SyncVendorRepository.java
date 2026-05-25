@@ -4,6 +4,7 @@ import com.omvrti.calendar_service.persistence.entity.SyncVendorEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -12,6 +13,9 @@ public interface SyncVendorRepository extends JpaRepository<SyncVendorEntity, Lo
     Optional<SyncVendorEntity> findFirstByNameOrderByIdAsc(String name);
 
     boolean existsByName(String name);
+
+    /** All active vendors ordered for display — used by GET /api/sync/vendors. */
+    List<SyncVendorEntity> findByIsValidOrderByDisplaySortOrderAsc(Integer isValid);
 
     /** Safe wrapper — uses findFirst to tolerate duplicate master-data rows. */
     default Optional<SyncVendorEntity> findByName(String name) {
