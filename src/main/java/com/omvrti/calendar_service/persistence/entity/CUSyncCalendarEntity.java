@@ -54,9 +54,11 @@ public class CUSyncCalendarEntity {
     @Column(name = "LAST_EVENT_SYNC_DATE")
     private LocalDateTime lastEventSyncTimestamp;
 
-    /** Provider incremental sync timestamp — replaces string-based sync cursor. */
-    @Column(name = "SYNC_CURSOR")
-    private LocalDateTime syncCursor;
+    /** Provider sync token — Google nextSyncToken or Outlook @odata.deltaLink. VARCHAR in DB. */
+    @Column(name = "SYNC_CURSOR", length = 2000)
+    private String syncCursor;
+    @Column(name = "SOURCE_SYSTEM", length = 50)
+    private String sourceSystem;
 
     @Column(name = "INSERTED_ON", nullable = false)
     private LocalDateTime insertedOn;
@@ -99,8 +101,9 @@ public class CUSyncCalendarEntity {
 
     /** Returns last sync time as OffsetDateTime for provider calls that need it. */
     public OffsetDateTime getLastEventSyncDate() {
-        LocalDateTime ts = lastEventSyncTimestamp != null ? lastEventSyncTimestamp : syncCursor;
-        return ts != null ? ts.atZone(java.time.ZoneOffset.UTC).toOffsetDateTime() : null;
+        return lastEventSyncTimestamp != null
+                ? lastEventSyncTimestamp.atZone(java.time.ZoneOffset.UTC).toOffsetDateTime()
+                : null;
     }
 
     public void setLastEventSyncDate(OffsetDateTime dt) {

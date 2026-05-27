@@ -62,6 +62,21 @@ public class EventDto {
     private String visibility;
     private List<ReminderDto> reminders;
 
+    /** Extracted join URL: Google conferenceData entryPoints (type=video) / hangoutLink; Outlook onlineMeeting.joinUrl / onlineMeetingUrl. */
+    private String meetingUrl;
+
+    /**
+     * Email of the calendar account performing the sync — set by SyncEngine.
+     * Used by EventEntityMapper to determine IS_ORGANIZER on the event row.
+     */
+    private String connectedUserEmail;
+
+    /** originalStartTime.dateTime for recurring exception instances (Google / Outlook). */
+    private OffsetDateTime originalStartDate;
+
+    /** originalStartTime.timeZone for recurring exception instances. */
+    private String originalStartTimezone;
+
     public boolean isUpcoming() {
         return endTime != null && endTime.isAfter(OffsetDateTime.now());
     }

@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -80,12 +82,15 @@ public class ProviderCalendarService {
     }
 
     /**
-     * Mark the sync timestamp for a calendar — new schema stores LocalDateTime, not a string token.
+     * Persist the provider sync token (Google nextSyncToken / Outlook deltaLink) and update
+     * the last-event-sync timestamp. Token may be null (e.g. after a time-based fallback fetch).
      */
     @Transactional
-    public void updateSyncCursor(CUSyncCalendarEntity calendar) {
-        log.debug("Updating sync cursor for calendar: {}", calendar.getCalendarReference());
-        calendar.setSyncCursor(LocalDateTime.now());
+    public void updateSyncCursor(CUSyncCalendarEntity calendar, String token) {
+        log.debug("Updating sync cursor for calendar: {} token={}", calendar.getCalendarReference(),
+                token != null ? "present" : "null");
+        calendar.setSyncCursor(token);
+        calendar.setLastEventSyncDate(OffsetDateTime.now(ZoneOffset.UTC));
         calendarRepository.save(calendar);
     }
 

@@ -8,11 +8,13 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface CUSyncCalendarEventGuestRepository extends JpaRepository<CUSyncCalendarEventGuestEntity, Long> {
 
     List<CUSyncCalendarEventGuestEntity> findByCuSyncCalendarEvent(CUSyncCalendarEventEntity event);
+    Optional<CUSyncCalendarEventGuestEntity> findByCuSyncCalendarEventAndGuestEmail(CUSyncCalendarEventEntity event, String guestEmail);
 
     @Query("SELECT g FROM CUSyncCalendarEventGuestEntity g " +
            "WHERE g.cuSyncCalendarEvent = :event AND g.isOrganizer = 1")

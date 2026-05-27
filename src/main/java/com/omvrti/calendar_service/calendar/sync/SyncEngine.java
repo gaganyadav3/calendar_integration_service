@@ -21,6 +21,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -35,6 +36,7 @@ public class SyncEngine {
     private final EventMergePersistenceService eventMergePersistenceService;
     private final TokenRefreshService tokenRefreshService;
     private final Map<ProviderType, ICalendarProvider> calendarProviders;
+    private final Map<Long, LocalDateTime> webhookSyncGuard = new ConcurrentHashMap<>();
 
     // ── Entry point ───────────────────────────────────────────────────────────
 
@@ -133,6 +135,13 @@ public class SyncEngine {
      */
     @Transactional
     public void triggerIncrementalSync(CustomerUserSyncEntity sync, CUSyncCalendarEntity calendar) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime last = webhookSyncGuard.get(calendar.getId());
+        if (last != null && last.plusSeconds(15).isAfter(now)) {
+            log.debug("Skipping duplicate webhook-triggered sync for calendar {}", calendar.getId());
+            return;
+        }
+        webhookSyncGuard.put(calendar.getId(), now);
         String vendorCode = sync.getSyncVendor() != null
                 ? sync.getSyncVendor().getVendorCode() : null;
         if (vendorCode == null) {
@@ -178,25 +187,43 @@ public class SyncEngine {
     private void syncCalendarEvents(CustomerUserSyncEntity sync, CUSyncCalendarEntity calendar,
                                     ICalendarProvider provider, SyncResult result) {
         log.debug("Syncing events for calendar {}", calendar.getCalendarReference());
+        String connectedEmail = sync.getSyncEmail();
 
         ICalendarProvider.SyncFetchResult fetchResult = null;
+        String storedCursor = calendar.getSyncCursor();
         try {
-            fetchResult = provider.fetchEventsWithToken(sync, calendar.getCalendarReference(), null);
+            fetchResult = provider.fetchEventsWithToken(sync, calendar.getCalendarReference(), storedCursor);
         } catch (CalendarException e) {
-            log.debug("Token-based sync not supported for {}: {}", calendar.getCalendarReference(), e.getMessage());
+            if ("SYNC_TOKEN_EXPIRED".equals(e.getErrorCode())) {
+                // Token expired — clear it and fall through to a time-based full fetch
+                log.warn("Sync token expired for calendar {} — falling back to full fetch",
+                        calendar.getCalendarReference());
+                providerCalendarService.updateSyncCursor(calendar, null);
+            } else {
+                log.debug("Token-based sync not supported for {}: {}",
+                        calendar.getCalendarReference(), e.getMessage());
+            }
         }
 
+        String nextToken = null;
         if (fetchResult == null) {
             OffsetDateTime since = calendar.getLastEventSyncDate() != null
                     ? calendar.getLastEventSyncDate()
                     : OffsetDateTime.now().minusDays(90);
             List<EventDto> events = provider.fetchEvents(sync, calendar.getCalendarReference(), since);
-            for (EventDto e : events) mergeEvent(calendar.getId(), e, result);
+            for (EventDto e : events) {
+                e.setConnectedUserEmail(connectedEmail);
+                mergeEvent(calendar.getId(), e, result);
+            }
         } else {
-            for (EventDto e : fetchResult.events()) mergeEvent(calendar.getId(), e, result);
+            nextToken = fetchResult.nextSyncToken();
+            for (EventDto e : fetchResult.events()) {
+                e.setConnectedUserEmail(connectedEmail);
+                mergeEvent(calendar.getId(), e, result);
+            }
         }
 
-        providerCalendarService.updateSyncCursor(calendar);
+        providerCalendarService.updateSyncCursor(calendar, nextToken);
         result.setSyncedCalendarCount(result.getSyncedCalendarCount() + 1);
     }
 

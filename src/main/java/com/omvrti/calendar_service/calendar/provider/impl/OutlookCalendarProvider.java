@@ -91,14 +91,13 @@ public class OutlookCalendarProvider implements ICalendarProvider {
             String resource = effectiveId != null
                     ? "/me/calendars/" + effectiveId + "/events"
                     : "/me/events";
+            String select = "$select=id,subject,bodyPreview,body,location,organizer,start,end,isAllDay,isCancelled"
+                    + ",lastModifiedDateTime,createdDateTime,attendees,recurrence,onlineMeeting,onlineMeetingUrl"
+                    + ",webLink,importance,sensitivity,responseStatus,categories,seriesMasterId,originalStart";
             String filter = since != null
                     ? "?$filter=lastModifiedDateTime+ge+" + since.withOffsetSameInstant(ZoneOffset.UTC)
-                    + "&$select=id,subject,bodyPreview,body,location,organizer,start,end,isAllDay,isCancelled"
-                    + ",lastModifiedDateTime,createdDateTime,attendees,recurrence,onlineMeeting,webLink"
-                    + ",importance,sensitivity,responseStatus,categories&$top=100"
-                    : "?$select=id,subject,bodyPreview,body,location,organizer,start,end,isAllDay,isCancelled"
-                    + ",lastModifiedDateTime,createdDateTime,attendees,recurrence,onlineMeeting,webLink"
-                    + ",importance,sensitivity,responseStatus,categories&$top=100";
+                    + "&" + select + "&$top=100"
+                    : "?" + select + "&$top=100";
             return fetchPaged(GRAPH + resource + filter, sync.getAccessToken());
         } catch (Exception e) {
             throw new CalendarException("FETCH_EVENTS_FAILED",
@@ -130,8 +129,8 @@ public class OutlookCalendarProvider implements ICalendarProvider {
                         : "/me/events/delta";
                 startUrl = GRAPH + resource
                         + "?$select=id,subject,bodyPreview,body,location,organizer,start,end,isAllDay,isCancelled"
-                        + ",lastModifiedDateTime,createdDateTime,attendees,recurrence,onlineMeeting,webLink"
-                        + ",importance,sensitivity,responseStatus";
+                        + ",lastModifiedDateTime,createdDateTime,attendees,recurrence,onlineMeeting,onlineMeetingUrl"
+                        + ",webLink,importance,sensitivity,responseStatus,seriesMasterId,originalStart";
             }
 
             List<EventDto> all = new ArrayList<>();
@@ -223,7 +222,8 @@ public class OutlookCalendarProvider implements ICalendarProvider {
     public EventDto getEvent(CustomerUserSyncEntity sync, String calendarId, String externalEventId) {
         String url = GRAPH + "/me/events/" + externalEventId
                 + "?$select=id,subject,bodyPreview,body,location,organizer,start,end,isAllDay,isCancelled"
-                + ",lastModifiedDateTime,createdDateTime,attendees,recurrence,onlineMeeting,webLink";
+                + ",lastModifiedDateTime,createdDateTime,attendees,recurrence,onlineMeeting,onlineMeetingUrl"
+                + ",webLink,seriesMasterId,originalStart";
         try {
             ResponseEntity<String> resp = get(url, sync.getAccessToken());
             JsonNode node = objectMapper.readTree(resp.getBody());
@@ -337,7 +337,7 @@ public class OutlookCalendarProvider implements ICalendarProvider {
     }
 
     EventDto parseGraphEvent(JsonNode node) {
-        boolean cancelled = node.path("isCancelled").asBoolean(false);
+        boolean cancelled = node.has("@removed") || node.path("isCancelled").asBoolean(false);
         boolean allDay = node.path("isAllDay").asBoolean(false);
 
         OffsetDateTime start = parseGraphDt(node.path("start"));
@@ -348,13 +348,14 @@ public class OutlookCalendarProvider implements ICalendarProvider {
         String organizer = node.path("organizer").path("emailAddress").path("address").asText(null);
         String location = node.path("location").path("displayName").asText(null);
 
-        // Attendees
+        // Attendees — map optional flag (type="optional"); Outlook has no organizer/resource/comment fields
         List<AttendeeDto> attendees = new ArrayList<>();
         for (JsonNode a : node.path("attendees")) {
             attendees.add(AttendeeDto.builder()
                     .email(a.path("emailAddress").path("address").asText(null))
                     .name(a.path("emailAddress").path("name").asText(null))
                     .status(mapOutlookResponse(a.path("status").path("response").asText("notResponded")))
+                    .optional("optional".equalsIgnoreCase(a.path("type").asText("")))
                     .build());
         }
 
@@ -366,12 +367,32 @@ public class OutlookCalendarProvider implements ICalendarProvider {
             } catch (Exception ignored) {}
         }
 
-        // Online meeting
+        // seriesMasterId → recurringEventId (Outlook equivalent of Google's recurringEventId)
+        String recurringEventId = node.path("seriesMasterId").asText(null);
+        if (recurringEventId != null && recurringEventId.isBlank()) recurringEventId = null;
+
+        // Online meeting — extract join URL from onlineMeeting.joinUrl or top-level onlineMeetingUrl
         String onlineMeetingData = null;
+        String meetingUrl = null;
         if (!node.path("onlineMeeting").isMissingNode() && !node.path("onlineMeeting").isNull()) {
             try {
                 onlineMeetingData = objectMapper.writeValueAsString(node.get("onlineMeeting"));
             } catch (Exception ignored) {}
+            meetingUrl = node.path("onlineMeeting").path("joinUrl").asText(null);
+            if (meetingUrl != null && meetingUrl.isBlank()) meetingUrl = null;
+        }
+        if (meetingUrl == null) {
+            String topLevel = node.path("onlineMeetingUrl").asText(null);
+            if (topLevel != null && !topLevel.isBlank()) meetingUrl = topLevel;
+        }
+
+        // originalStart — present on recurring exception instances
+        OffsetDateTime originalStart = null;
+        String originalStartTz = null;
+        if (!node.path("originalStart").isMissingNode() && !node.path("originalStart").isNull()) {
+            originalStart = parseGraphDt(node.path("originalStart"));
+            originalStartTz = node.path("originalStart").path("timeZone").asText(null);
+            if (originalStartTz != null && originalStartTz.isBlank()) originalStartTz = null;
         }
 
         // Use full body content (strip HTML); fall back to bodyPreview (255-char truncated plain text)
@@ -392,10 +413,12 @@ public class OutlookCalendarProvider implements ICalendarProvider {
 
         return EventDto.builder()
                 .externalId(node.path("id").asText())
+                .iCalUID(node.path("iCalUId").asText(null))
                 .title(node.path("subject").asText(""))
                 .description(body)
                 .location(location)
                 .organizer(organizer)
+                .meetingUrl(meetingUrl)
                 .startTime(start)
                 .endTime(end)
                 .timeZoneId(timeZone)
@@ -408,9 +431,12 @@ public class OutlookCalendarProvider implements ICalendarProvider {
                 .createdAt(created)
                 .attendees(attendees)
                 .recurrenceRules(recurrenceRules)
+                .recurringEventId(recurringEventId)
                 .conferenceData(onlineMeetingData)
                 .htmlLink(webLink)
                 .visibility(node.path("sensitivity").asText(null))
+                .originalStartDate(originalStart)
+                .originalStartTimezone(originalStartTz)
                 .build();
     }
 

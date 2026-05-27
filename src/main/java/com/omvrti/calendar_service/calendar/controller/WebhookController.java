@@ -171,6 +171,10 @@ public class WebhookController {
         }
 
         CUSyncCalendarWebhookEntity webhook = webhookOpt.get();
+        if (!Integer.valueOf(1).equals(webhook.getIsActive()) || webhook.isExpired()) {
+            log.debug("Ignoring inactive/expired webhook for channel {}", channelId);
+            return;
+        }
         CUSyncCalendarEntity calendar = webhook.getCuSyncCalendar();
         var sync = calendar.getCustomerUserSync();
 

@@ -277,7 +277,7 @@ GET /api/calendar/events/by-provider?provider=GOOGLE
   "success": true,
   "provider": "GOOGLE",
   "count": 25,
-  "events": [ /* same structure as above */ ]
+  "events": [  ]
 }
 ```
 

@@ -354,7 +354,7 @@ public class GoogleCalendarProvider implements ICalendarProvider {
         List<String> recurrenceRules = event.getRecurrence() != null
                 ? new ArrayList<>(event.getRecurrence()) : null;
 
-        // Attendees
+        // Attendees — map optional, organizer, resource, comment
         List<AttendeeDto> attendees = null;
         if (event.getAttendees() != null) {
             attendees = event.getAttendees().stream()
@@ -362,6 +362,10 @@ public class GoogleCalendarProvider implements ICalendarProvider {
                             .email(a.getEmail())
                             .name(a.getDisplayName())
                             .status(mapGoogleResponseStatus(a.getResponseStatus()))
+                            .optional(Boolean.TRUE.equals(a.getOptional()))
+                            .organizer(Boolean.TRUE.equals(a.getOrganizer()))
+                            .resource(Boolean.TRUE.equals(a.getResource()))
+                            .comment(a.getComment())
                             .build())
                     .collect(Collectors.toList());
         }
@@ -377,12 +381,44 @@ public class GoogleCalendarProvider implements ICalendarProvider {
                     .collect(Collectors.toList());
         }
 
-        // Conference data
+        // Conference data raw JSON (kept for debug/audit); also extract video join URL
         String conferenceData = null;
+        String meetingUrl = null;
         if (event.getConferenceData() != null) {
             try {
                 conferenceData = new ObjectMapper().writeValueAsString(event.getConferenceData());
             } catch (Exception ignored) {}
+            // Prefer the video entry point; fall back to any entry point URI
+            if (event.getConferenceData().getEntryPoints() != null) {
+                var eps = event.getConferenceData().getEntryPoints();
+                meetingUrl = eps.stream()
+                        .filter(ep -> "video".equals(ep.getEntryPointType()))
+                        .map(ep -> (String) ep.getUri())
+                        .filter(Objects::nonNull)
+                        .findFirst()
+                        .orElse(null);
+                if (meetingUrl == null) {
+                    meetingUrl = eps.stream()
+                            .map(ep -> (String) ep.getUri())
+                            .filter(Objects::nonNull)
+                            .findFirst()
+                            .orElse(null);
+                }
+            }
+        }
+        // Fall back to hangoutLink when no conferenceData entry point found
+        if (meetingUrl == null) meetingUrl = event.getHangoutLink();
+        if (meetingUrl == null || meetingUrl.isBlank()) meetingUrl = event.getLocation();
+        if ((meetingUrl == null || meetingUrl.isBlank()) && event.getDescription() != null) {
+            meetingUrl = event.getDescription();
+        }
+
+        // originalStartTime — present on recurring exception instances
+        OffsetDateTime originalStart = null;
+        String originalStartTz = null;
+        if (event.getOriginalStartTime() != null) {
+            originalStart = parseDateTime(event.getOriginalStartTime());
+            originalStartTz = event.getOriginalStartTime().getTimeZone();
         }
 
         String timeZone = "UTC";
@@ -398,6 +434,7 @@ public class GoogleCalendarProvider implements ICalendarProvider {
                 .description(event.getDescription())
                 .location(event.getLocation())
                 .organizer(event.getOrganizer() != null ? event.getOrganizer().getEmail() : null)
+                .meetingUrl(meetingUrl)
                 .startTime(start)
                 .endTime(end)
                 .timeZoneId(timeZone)
@@ -418,6 +455,8 @@ public class GoogleCalendarProvider implements ICalendarProvider {
                 .etag(event.getEtag())
                 .transparency(event.getTransparency())
                 .visibility(event.getVisibility())
+                .originalStartDate(originalStart)
+                .originalStartTimezone(originalStartTz)
                 .build();
     }
 

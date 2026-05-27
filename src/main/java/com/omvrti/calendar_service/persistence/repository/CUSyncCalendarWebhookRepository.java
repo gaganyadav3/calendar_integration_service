@@ -15,6 +15,7 @@ import java.util.Optional;
 public interface CUSyncCalendarWebhookRepository extends JpaRepository<CUSyncCalendarWebhookEntity, Long> {
 
     List<CUSyncCalendarWebhookEntity> findByCuSyncCalendar(CUSyncCalendarEntity cuSyncCalendar);
+    List<CUSyncCalendarWebhookEntity> findByCuSyncCalendarAndIsActive(CUSyncCalendarEntity cuSyncCalendar, Integer isActive);
 
     /**
      * Eagerly loads the full sync chain so webhook controllers never hit LazyInitializationException

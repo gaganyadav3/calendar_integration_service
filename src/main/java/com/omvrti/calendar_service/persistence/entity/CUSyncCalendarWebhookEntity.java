@@ -48,11 +48,19 @@ public class CUSyncCalendarWebhookEntity {
 
     @Column(name = "UPDATED_ON")
     private LocalDateTime updatedOn;
+    @Column(name = "IS_ACTIVE")
+    private Integer isActive;
+    @Column(name = "IS_DELETED")
+    private Integer isDeleted;
+    @Column(name = "DELETED_ON")
+    private LocalDateTime deletedOn;
 
     @PrePersist
     protected void onCreate() {
         if (insertedOn == null) insertedOn = LocalDateTime.now();
         if (updatedOn == null) updatedOn = LocalDateTime.now();
+        if (isActive == null) isActive = 1;
+        if (isDeleted == null) isDeleted = 0;
     }
 
     @PreUpdate

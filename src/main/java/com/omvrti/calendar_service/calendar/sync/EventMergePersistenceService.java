@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+
 /**
  * Merges provider events into the DB inside REQUIRES_NEW transactions so that:
  * 1. A failure on one event does not corrupt or roll back the calling SyncEngine transaction.
@@ -23,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class EventMergePersistenceService {
 
     private final CUSyncCalendarEventRepository eventRepository;
+    private final CUSyncCalendarRepository calendarRepository;
     private final CalendarEventStatusRepository calendarEventStatusRepository;
     private final EventEntityMapper eventMapper;
 
@@ -41,6 +44,10 @@ public class EventMergePersistenceService {
     public boolean mergeEvent(Long calendarId, EventDto dto) {
         if (dto.getExternalId() == null || dto.getExternalId().isBlank()) {
             log.warn("Skipping event with null/blank externalId for calendar {}", calendarId);
+            return false;
+        }
+        if (calendarRepository.findById(calendarId).isEmpty()) {
+            log.warn("Skipping event {} because calendar {} does not exist", dto.getExternalId(), calendarId);
             return false;
         }
 
@@ -66,6 +73,9 @@ public class EventMergePersistenceService {
                         .build();
 
         eventMapper.updateEntityFromDto(dto, event);
+        event.setIsDeleted(0);
+        event.setIsActive(1);
+        event.setDeletedOn(null);
         CUSyncCalendarEventEntity saved = eventRepository.save(event);
 
         // Guests and reminders within the same REQUIRES_NEW transaction (atomic with event)
@@ -80,7 +90,10 @@ public class EventMergePersistenceService {
                 .ifPresentOrElse(
                         event::setCalendarEventStatus,
                         () -> log.warn("No CANCELLED CalendarEventStatus found in DB — run master data init"));
+        event.setIsDeleted(1);
+        event.setIsActive(0);
+        event.setDeletedOn(LocalDateTime.now());
         eventRepository.save(event);
-        log.debug("Marked event {} as cancelled", event.getCalendarEventReference());
+        log.debug("Marked event {} as cancelled/deleted", event.getCalendarEventReference());
     }
 }

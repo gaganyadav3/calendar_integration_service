@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -83,11 +84,7 @@ public class WebhookManagementService {
                         .renewWebhook(sync, webhook.getExternalChannelId(),
                                 calendar.getCalendarReference(), callbackBaseUrl + "/api/webhook/google");
         if (info != null) {
-            // Delete the old webhook outright — marking EXPIRED would risk a duplicate
-            // (CU_SYNC_CALENDAR_ID, WEBHOOK_STATUS_ID) unique constraint violation if
-            // a stale EXPIRED row already exists for this calendar from a previous cycle.
-            webhookRepository.delete(webhook);
-            webhookRepository.flush();
+            deactivateWebhook(webhook, "EXPIRED");
             createOrUpdateWebhook(calendar, info.channelId(), null, null, info.expiryDate(), "ACTIVE");
             log.info("Google webhook renewed: new channelId={}", info.channelId());
         }
@@ -124,14 +121,8 @@ public class WebhookManagementService {
         if (existingOpt.isPresent()) {
             webhook = existingOpt.get();
         } else {
-            // New webhook — purge all existing webhooks for this calendar first so that
-            // the (CU_SYNC_CALENDAR_ID, WEBHOOK_STATUS_ID) unique constraint is never violated
-            // when inserting a new ACTIVE (or any status) row for the same calendar.
-            List<CUSyncCalendarWebhookEntity> stale = webhookRepository.findByCuSyncCalendar(calendar);
-            if (!stale.isEmpty()) {
-                webhookRepository.deleteAll(stale);
-                webhookRepository.flush();
-            }
+            webhookRepository.findByCuSyncCalendarAndIsActive(calendar, 1)
+                    .forEach(w -> deactivateWebhook(w, "EXPIRED"));
             webhook = CUSyncCalendarWebhookEntity.builder()
                     .cuSyncCalendar(calendar)
                     .externalChannelId(externalChannelId)
@@ -146,6 +137,11 @@ public class WebhookManagementService {
         if (statusCode != null) {
             webhookStatusRepository.findByWebhookStatusCode(statusCode)
                     .ifPresent(webhook::setWebhookStatus);
+        }
+        webhook.setIsActive("ACTIVE".equalsIgnoreCase(statusCode) ? 1 : 0);
+        if (Integer.valueOf(1).equals(webhook.getIsActive())) {
+            webhook.setIsDeleted(0);
+            webhook.setDeletedOn(null);
         }
         return webhookRepository.save(webhook);
     }
@@ -184,11 +180,20 @@ public class WebhookManagementService {
 
     @Transactional
     public void deleteWebhook(CUSyncCalendarWebhookEntity webhook) {
-        webhookRepository.delete(webhook);
+        deactivateWebhook(webhook, "INACTIVE");
     }
 
     @Transactional
     public void updateWebhookStatus(CUSyncCalendarWebhookEntity webhook, String statusCode) {
+        webhookStatusRepository.findByWebhookStatusCode(statusCode).ifPresent(webhook::setWebhookStatus);
+        webhook.setIsActive("ACTIVE".equalsIgnoreCase(statusCode) ? 1 : 0);
+        webhookRepository.save(webhook);
+    }
+
+    private void deactivateWebhook(CUSyncCalendarWebhookEntity webhook, String statusCode) {
+        webhook.setIsActive(0);
+        webhook.setIsDeleted(1);
+        webhook.setDeletedOn(LocalDateTime.now());
         webhookStatusRepository.findByWebhookStatusCode(statusCode).ifPresent(webhook::setWebhookStatus);
         webhookRepository.save(webhook);
     }

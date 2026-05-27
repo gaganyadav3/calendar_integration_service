@@ -10,7 +10,9 @@ import java.time.LocalDateTime;
  * IS_ORGANISER uses British spelling as in the DB column.
  */
 @Entity
-@Table(name = "CU_SYNC_CALENDAR_EVENT_GUEST")
+@Table(name = "CU_SYNC_CALENDAR_EVENT_GUEST", uniqueConstraints = {
+    @UniqueConstraint(columnNames = {"CU_SYNC_CAL_EVENT_ID", "GUEST_EMAIL"})
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -48,6 +50,12 @@ public class CUSyncCalendarEventGuestEntity {
 
     @Column(name = "COMMENT_TEXT", length = 4000)
     private String commentText;
+    @Column(name = "IS_ACTIVE")
+    private Integer isActive;
+    @Column(name = "IS_DELETED")
+    private Integer isDeleted;
+    @Column(name = "DELETED_ON")
+    private LocalDateTime deletedOn;
 
     @Column(name = "INSERTED_ON")
     private LocalDateTime insertedOn;
@@ -62,6 +70,8 @@ public class CUSyncCalendarEventGuestEntity {
         if (isOptional == null) isOptional = 0;
         if (isOrganizer == null) isOrganizer = 0;
         if (isHuman == null) isHuman = 1;
+        if (isActive == null) isActive = 1;
+        if (isDeleted == null) isDeleted = 0;
     }
 
     @PreUpdate

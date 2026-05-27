@@ -17,6 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
@@ -127,7 +128,7 @@ public class EventEntityMapper {
         e.setTitle(dto.getTitle() != null ? dto.getTitle() : "");
         e.setDescription(dto.getDescription());
         e.setLocation(dto.getLocation());
-        // meetingUrl not in EventDto — set separately if needed
+        e.setMeetingUrl(dto.getMeetingUrl());
         e.setEventStartDate(dto.getStartTime());
         e.setEventEndDate(dto.getEndTime());
         // Timezone string is implicit in the TIMESTAMP WITH TIME ZONE columns — no-op
@@ -135,13 +136,17 @@ public class EventEntityMapper {
         e.setEventEndTimeZone(dto.getTimeZoneId());
         e.setIsAllDayEvent(dto.isAllDay());
         e.setOrganizerEmail(dto.getOrganizer());
+        // IS_ORGANIZER: true when the connected user is the event organizer
+        if (dto.getConnectedUserEmail() != null && dto.getOrganizer() != null) {
+            e.setIsOrganizer(dto.getConnectedUserEmail().equalsIgnoreCase(dto.getOrganizer()));
+        }
         e.setIsCancelled(dto.isCancelled());
         e.setProviderStatus(dto.getStatus());
         e.setVisibility(dto.getVisibility() != null ? dto.getVisibility() : "DEFAULT");
         e.setIsVisible(true);
         e.setTransparency(dto.getTransparency());
         e.setSequenceVersion(dto.getSequence());
-        e.setProviderEtag(dto.getEtag());
+        e.setLastProviderEtag(dto.getEtag());
         e.setHtmlLink(dto.getHtmlLink());
         e.setRecurrenceEventId(dto.getRecurringEventId());
         e.setConferenceData(dto.getConferenceData());
@@ -149,6 +154,11 @@ public class EventEntityMapper {
         if (dto.getCreatedAt() != null) e.setProviderCreatedTimestamp(dto.getCreatedAt());
         if (dto.getRecurrenceRules() != null && !dto.getRecurrenceRules().isEmpty()) {
             e.setRecurrenceRule(String.join("\n", dto.getRecurrenceRules()));
+        }
+        // ORIGINAL_START_DATE / ORIGINAL_START_TIMEZONE — present on recurring exception instances
+        if (dto.getOriginalStartDate() != null) {
+            e.setOriginalStartDate(dto.getOriginalStartDate().toLocalDateTime());
+            e.setOriginalStartTimezone(dto.getOriginalStartTimezone());
         }
 
         // AIRPORT_ID is NOT NULL in Oracle — set a valid FK value from the AIRPORT table
@@ -196,7 +206,7 @@ public class EventEntityMapper {
                 .visibility(entity.getVisibility())
                 .transparency(entity.getTransparency())
                 .sequence(entity.getSequenceVersion())
-                .etag(entity.getProviderEtag())
+                .etag(entity.getLastProviderEtag())
                 .htmlLink(entity.getHtmlLink())
                 .conferenceData(entity.getConferenceData())
                 .externalUpdatedAt(entity.getProviderUpdatedTimestamp())
@@ -211,31 +221,45 @@ public class EventEntityMapper {
     public void syncGuests(CUSyncCalendarEventEntity event, List<AttendeeDto> attendees) {
         if (attendees == null) return;
         List<CUSyncCalendarEventGuestEntity> existing = guestRepository.findByCuSyncCalendarEvent(event);
-        if (!existing.isEmpty()) {
-            guestRepository.deleteAll(existing);
-            guestRepository.flush(); // force DELETEs to DB before INSERTs to avoid UK1 violation
-        }
-
+        Set<String> incoming = new HashSet<>();
         for (AttendeeDto a : attendees) {
             if (a.getEmail() == null) continue;
+            incoming.add(a.getEmail().toLowerCase());
             EventGuestResponseEntity guestResponse = resolveGuestResponse(a.getStatus());
             if (guestResponse == null) {
                 log.warn("EventGuestResponse '{}' not found in DB — skipping guest {}. Run master data init.",
                         mapToGuestResponseName(a.getStatus()), a.getEmail());
                 continue;
             }
-            boolean isOrganizer = a.getEmail().equalsIgnoreCase(event.getOrganizerEmail());
-            CUSyncCalendarEventGuestEntity guest = CUSyncCalendarEventGuestEntity.builder()
-                    .cuSyncCalendarEvent(event)
-                    .guestEmail(a.getEmail())
-                    .guestName(a.getName())
-                    .responseStatus(a.getStatus())
-                    .guestResponse(guestResponse)
-                    .isOrganizer(isOrganizer ? 1 : 0)
-                    .isOptional(0)
-                    .isHuman(1)
-                    .build();
+            // isOrganizer: use provider flag when present; fall back to email comparison
+            boolean isOrgByEmail = event.getOrganizerEmail() != null
+                    && a.getEmail().equalsIgnoreCase(event.getOrganizerEmail());
+            CUSyncCalendarEventGuestEntity guest = guestRepository
+                    .findByCuSyncCalendarEventAndGuestEmail(event, a.getEmail())
+                    .orElseGet(() -> CUSyncCalendarEventGuestEntity.builder()
+                            .cuSyncCalendarEvent(event)
+                            .guestEmail(a.getEmail())
+                            .build());
+            guest.setGuestName(a.getName());
+            guest.setResponseStatus(a.getStatus());
+            guest.setGuestResponse(guestResponse);
+            guest.setIsOrganizer(a.isOrganizer() || isOrgByEmail);
+            guest.setIsOptional(a.isOptional());
+            guest.setIsHuman(!a.isResource());
+            guest.setCommentText(a.getComment());
+            guest.setIsActive(1);
+            guest.setIsDeleted(0);
+            guest.setDeletedOn(null);
             guestRepository.save(guest);
+        }
+        for (CUSyncCalendarEventGuestEntity stale : existing) {
+            if (stale.getGuestEmail() == null) continue;
+            if (!incoming.contains(stale.getGuestEmail().toLowerCase())) {
+                stale.setIsActive(0);
+                stale.setIsDeleted(1);
+                stale.setDeletedOn(LocalDateTime.now());
+                guestRepository.save(stale);
+            }
         }
     }
 

@@ -5,6 +5,7 @@ import com.omvrti.calendar_service.calendar.service.ProviderCalendarService;
 import com.omvrti.calendar_service.common.dto.EventDto;
 import com.omvrti.calendar_service.common.enums.EventSource;
 import com.omvrti.calendar_service.common.enums.ProviderType;
+import com.omvrti.calendar_service.oauth.service.TokenRefreshService;
 import com.omvrti.calendar_service.persistence.entity.*;
 import com.omvrti.calendar_service.persistence.repository.CustomerUserRepository;
 import com.omvrti.calendar_service.persistence.repository.CustomerUserSyncRepository;
@@ -32,6 +33,7 @@ class SyncEngineTest {
         SyncVendorService syncVendorService = mock(SyncVendorService.class);
         SyncStatusPersistenceService syncStatusPersistenceService = mock(SyncStatusPersistenceService.class);
         EventMergePersistenceService eventMergePersistenceService = mock(EventMergePersistenceService.class);
+        TokenRefreshService tokenRefreshService = mock(TokenRefreshService.class);
         ICalendarProvider provider = mock(ICalendarProvider.class);
 
         SyncEngine engine = new SyncEngine(
@@ -41,6 +43,7 @@ class SyncEngineTest {
                 syncVendorService,
                 syncStatusPersistenceService,
                 eventMergePersistenceService,
+                tokenRefreshService,
                 Map.of(ProviderType.GOOGLE, provider)
         );
 
@@ -80,6 +83,7 @@ class SyncEngineTest {
         when(syncVendorService.getOrCreateVendor(ProviderType.GOOGLE)).thenReturn(vendor);
         when(customerUserSyncRepository.findByCustomerUserIdAndSyncVendorId(1L, 1L))
                 .thenReturn(Optional.of(sync));
+        when(tokenRefreshService.getValidAccessToken(sync, ProviderType.GOOGLE)).thenReturn("tok");
         when(providerCalendarService.getEnabledCalendars(sync)).thenReturn(List.of(calendar));
         when(provider.fetchCalendars(sync)).thenReturn(List.of());
 
@@ -103,6 +107,6 @@ class SyncEngineTest {
         assertEquals("SUCCESS", result.getStatus());
         assertEquals(1, result.getFetchedRemoteCount());
         verify(eventMergePersistenceService, atLeastOnce()).mergeEvent(eq(100L), any());
-        verify(providerCalendarService).updateSyncCursor(calendar);
+        verify(providerCalendarService).updateSyncCursor(eq(calendar), eq("nextToken"));
     }
 }

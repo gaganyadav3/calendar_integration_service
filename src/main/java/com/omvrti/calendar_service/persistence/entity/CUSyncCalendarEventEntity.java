@@ -82,7 +82,7 @@ public class CUSyncCalendarEventEntity {
     @Setter(AccessLevel.NONE)
     private Integer isOrganizer;
 
-    @Column(name = "LAST_SYNC_DATE")
+    @Column(name = "LAST_EVENT_SYNC_DATE")
     private LocalDateTime lastSyncDate;
 
     @Column(name = "MEETING_MODE")
@@ -100,6 +100,20 @@ public class CUSyncCalendarEventEntity {
     @Column(name = "VISIBILITY", length = 1000)
     private String visibility;
 
+    @Column(name = "IS_DELETED")
+    private Integer isDeleted;
+    @Column(name = "IS_ACTIVE")
+    private Integer isActive;
+
+    @Column(name = "DELETED_ON")
+    private LocalDateTime deletedOn;
+
+    @Column(name = "ORIGINAL_START_DATE")
+    private LocalDateTime originalStartDate;
+
+    @Column(name = "ORIGINAL_START_TIMEZONE", length = 100)
+    private String originalStartTimezone;
+
     @Column(name = "INSERTED_ON")
     private LocalDateTime insertedOn;
 
@@ -111,6 +125,8 @@ public class CUSyncCalendarEventEntity {
         if (insertedOn == null) insertedOn = LocalDateTime.now();
         if (updatedOn == null) updatedOn = LocalDateTime.now();
         if (isOrganizer == null) isOrganizer = 0;
+        if (isDeleted == null) isDeleted = 0;
+        if (isActive == null) isActive = 1;
         if (meetingMode == null || meetingMode < 1) meetingMode = 2; // Oracle constraint: MEETING_MODE >= 1; guard null AND 0
         if (isAllDay == null) isAllDay = 0;
         if (isVisible == null) isVisible = 1;
@@ -177,9 +193,13 @@ public class CUSyncCalendarEventEntity {
         this.isOrganizer = Boolean.TRUE.equals(org) ? 1 : 0;
     }
 
-    // ── Fully transient fields ────────────────────────────────────────────────
+    @Column(name = "LAST_PROVIDER_ETAG", length = 500)
+    private String lastProviderEtag;
+    @Column(name = "SOURCE_SYSTEM", length = 50)
+    private String sourceSystem;
 
-    @Transient private String providerEtag;
+    // ── Transient audit fields (not persisted) ────────────────────────────────
+
     @Transient private OffsetDateTime providerUpdatedTimestamp;
     @Transient private OffsetDateTime providerCreatedTimestamp;
     @Transient private String providerStatus;
